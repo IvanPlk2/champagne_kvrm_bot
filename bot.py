@@ -65,6 +65,13 @@ STATE_UPDATE_PLACE = "update_place"
 STATE_ADD_PLAYER_RATING_ID = "add_player_rating_id"
 STATE_ADD_PLAYER_CONFIRM = "add_player_confirm"
 
+PLAYERS_CALLBACK = 'players'
+PLACE_CALLBACK = 'place'
+POLL_CALLBACK = 'poll'
+ADD_PLAYER_CALLBACK = 'add_player'
+SHOW_POLL_CALLBACK = 'show_poll'
+
+
 class ChgkBot:
     def __init__(self):
         # =============================================================
@@ -174,11 +181,16 @@ class ChgkBot:
         # Если пользователя ещё нет в players,
         # добавляем его туда.
         self.db.add_player_by_tg_id(tg_id, username)
-        is_admin = self.db.is_admin(tg_id)
+        await self.reset_keyboard_and_state(update, context)
 
+    async def reset_keyboard_and_state(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ):
+        # Сброс клавиатуры и состояния
         context.user_data["state"] = STATE_NONE
         await self.show_main_menu(update)
-
 
     # =================================================================
     # TEXT HANDLER
@@ -379,7 +391,7 @@ class ChgkBot:
             keyboard.append([
                 InlineKeyboardButton(
                     text=name or str(base_id),
-                    callback_data=f"players:{base_id}",
+                    callback_data=f"{PLAYERS_CALLBACK}:{base_id}",
                 )
             ])
 
@@ -428,64 +440,54 @@ class ChgkBot:
 
         data = query.data
 
-        if data.startswith("players:"):
+        callback_cmd, text = data.split(':')[:2]
 
-
-            game_id = int(data.split(":")[1])
+        if callback_cmd == PLAYERS_CALLBACK:
+            game_id = int(text)
 
             await self.show_players_for_game(
                 query,
                 game_id
             )
-
             return
 
-        if data.startswith("place:"):
-            game_id = int(data.split(":")[1])
+        if callback_cmd == PLACE_CALLBACK:
+            game_id = int(text)
 
             context.user_data["state"] = STATE_UPDATE_PLACE
             context.user_data["game_id"] = game_id
-
             await query.message.reply_text(
                 "Новое место:"
             )
-
             return
 
-        if data.startswith("poll:"):
-            game_id = int(data.split(":")[1])
-
+        if callback_cmd == POLL_CALLBACK:
+            game_id = int(text)
             await self.create_or_forward_poll(
                 query,
+                update,
                 context,
                 game_id
             )
-
             return
 
-        if data.startswith("add_player:"):
-            player_id = int(data.split(":")[1])
+        if callback_cmd == ADD_PLAYER_CALLBACK:
+            player_id = int(text)
 
             context.user_data["player_id"] = player_id
             context.user_data["state"] = STATE_ADD_PLAYER_RATING_ID
-
             await query.message.reply_text(
                 "Введите id рейтинга:"
             )
-
             return
 
-
-        if data.startswith("show_poll:"):
-
-            game_id = int(data.split(":")[1])
-
+        if callback_cmd == SHOW_POLL_CALLBACK:
+            game_id = int(text)
             await self.show_poll(
                 query,
                 context.bot,
                 game_id
             )
-
             return
 
     # =================================================================
@@ -526,9 +528,7 @@ class ChgkBot:
             await update.message.reply_text(
                 "Не удалось получить информацию о турнире."
             )
-
-            context.user_data["state"] = STATE_NONE
-            await self.show_main_menu(update)
+            await self.reset_keyboard_and_state(update, context)
             return
 
         if context.user_data["is_festival"] and not rating_data.get('is_festival'):
@@ -536,14 +536,14 @@ class ChgkBot:
             await update.message.reply_text(
                 "Это обычная игра. Используйте кнопку \"Добавить игру\""
             )
-            await self.show_main_menu(update)
+            await self.reset_keyboard_and_state(update, context)
             return
 
         if not context.user_data["is_festival"] and rating_data.get('is_festival'):
             await update.message.reply_text(
                 "Это фестиваль. Используйте кнопку \"Добавить фестиваль\""
             )
-            await self.show_main_menu(update)
+            await self.reset_keyboard_and_state(update, context)
             return
 
         context.user_data["new_game"] = {"base_id": rating_data["id"],
@@ -563,8 +563,7 @@ class ChgkBot:
         text = update.message.text
 
         if text == BTN_NO:
-            context.user_data["state"] = STATE_NONE
-            await self.show_main_menu(update)
+            await self.reset_keyboard_and_state(update, context)
             return
 
         if text != BTN_YES:
@@ -577,16 +576,14 @@ class ChgkBot:
         data = context.user_data.get("new_game")
 
         if not data:
-            context.user_data["state"] = STATE_NONE
-            await self.show_main_menu(update)
+            await self.reset_keyboard_and_state(update, context)
             return
 
         if self.db.get_game(data["base_id"]):
             await update.message.reply_text(
                 "Игра уже добавлена."
             )
-            context.user_data["state"] = STATE_NONE
-            await self.show_main_menu(update)
+            await self.reset_keyboard_and_state(update, context)
             return
 
         context.user_data["new_game_base_id"] = data["base_id"]
@@ -605,8 +602,7 @@ class ChgkBot:
         game_id = context.user_data.get("new_game_base_id")
 
         if game_id is None:
-            context.user_data["state"] = STATE_NONE
-            await self.show_main_menu(update)
+            await self.reset_keyboard_and_state(update, context)
             return
 
         context.user_data["new_game_place"] = update.message.text
@@ -667,8 +663,7 @@ class ChgkBot:
                 "Игра добавлена."
             )
 
-            context.user_data["state"] = STATE_NONE
-            await self.show_main_menu(update)
+            await self.reset_keyboard_and_state(update, context)
         else:
 
             try:
@@ -747,8 +742,7 @@ class ChgkBot:
                 "Фестиваль добавлен."
             )
 
-        context.user_data["state"] = STATE_NONE
-        await self.show_main_menu(update)
+        await self.reset_keyboard_and_state(update, context)
 
     # =================================================================
     # ОБНОВЛЕНИЕ МЕСТА
@@ -775,7 +769,7 @@ class ChgkBot:
             keyboard.append([
                 InlineKeyboardButton(
                     text=name or str(game_id),
-                    callback_data=f"place:{game_id}",
+                    callback_data=f"{PLACE_CALLBACK}:{game_id}",
                 )
             ])
 
@@ -792,8 +786,7 @@ class ChgkBot:
         game_id = context.user_data.get("game_id")
 
         if game_id is None:
-            context.user_data["state"] = STATE_NONE
-            await self.show_main_menu(update)
+            await self.reset_keyboard_and_state(update, context)
             return
 
         new_place = update.message.text
@@ -801,8 +794,6 @@ class ChgkBot:
             game_id,
             new_place
         )
-
-        context.user_data["state"] = STATE_NONE
 
         if success:
             await update.message.reply_text(
@@ -816,7 +807,7 @@ class ChgkBot:
                 "Не удалось обновить место."
             )
 
-        await self.show_main_menu(update)
+        await self.reset_keyboard_and_state(update, context)
 
     async def notify_update_place(
         self,
@@ -878,7 +869,7 @@ class ChgkBot:
             keyboard.append([
                 InlineKeyboardButton(
                     text=name or str(game_id),
-                    callback_data=f"poll:{game_id}",
+                    callback_data=f"{POLL_CALLBACK}:{game_id}",
                 )
             ])
 
@@ -905,7 +896,7 @@ class ChgkBot:
             keyboard.append([
                 InlineKeyboardButton(
                     name or str(base_id),
-                    callback_data=f"show_poll:{base_id}",
+                    callback_data=f"{SHOW_POLL_CALLBACK}:{base_id}",
                 )
             ])
 
@@ -917,6 +908,7 @@ class ChgkBot:
     async def create_or_forward_poll(
         self,
         query,
+        update: Update,
         context: ContextTypes.DEFAULT_TYPE,
         game_id: int
     ):
@@ -968,11 +960,10 @@ class ChgkBot:
             )
         except Exception:
 
-            context.user_data["state"] = STATE_NONE
             await query.message.reply_text(
                 "Не удалось создать опрос."
             )
-            await self.show_main_menu(query)
+            await self.reset_keyboard_and_state(update, context)
             return
 
         await query.message.reply_text(
@@ -1074,7 +1065,7 @@ class ChgkBot:
             keyboard.append([
                 InlineKeyboardButton(
                     text=nickname or player_name or str(tg_id),
-                    callback_data=f"add_player:{tg_id}",
+                    callback_data=f"{ADD_PLAYER_CALLBACK}:{tg_id}",
                 )
             ])
 
@@ -1131,8 +1122,7 @@ class ChgkBot:
         text = update.message.text
 
         if text == BTN_NO:
-            context.user_data["state"] = STATE_NONE
-            await self.show_main_menu(update)
+            await self.reset_keyboard_and_state(update, context)
             return
 
         if text != BTN_YES:
@@ -1146,8 +1136,7 @@ class ChgkBot:
         data = context.user_data.get("rating_player")
 
         if player_id is None or not data:
-            context.user_data["state"] = STATE_NONE
-            await self.show_main_menu(update)
+            await self.reset_keyboard_and_state(update, context)
             return
 
         success = self.db.update_player_by_tg_id(
@@ -1158,8 +1147,6 @@ class ChgkBot:
             patronimyc=data.get("patronymic"),
         )
 
-        context.user_data["state"] = STATE_NONE
-
         if success:
             await update.message.reply_text(
                 "Игрок добавлен."
@@ -1169,7 +1156,7 @@ class ChgkBot:
                 "Не удалось добавить игрока."
             )
 
-        await self.show_main_menu(update)
+        await self.reset_keyboard_and_state(update, context)
 
     # =================================================================
     # ВСЕ ТУРНИРЫ
