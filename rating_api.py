@@ -28,7 +28,6 @@ class RatingAPI:
             "is_festival": (data.get("type") or {}).get('id') in {2, 6, "2", "6"}
         }
 
-
     async def get_player(self, player_id: int):
         response = await self.client.get(
             f"/players/{player_id}"
