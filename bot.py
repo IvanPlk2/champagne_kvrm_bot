@@ -655,7 +655,6 @@ class ChgkBot:
                 await update.message.reply_text(
                     "Не удалось добавить игру."
                 )
-                self.db.delete_game(game_id)
                 return
 
             await update.message.reply_text(
@@ -714,13 +713,18 @@ class ChgkBot:
                 "Неверный формат даты.\n"
                 "Используйте ДД.ММ.ГГ"
             )
-            self.db.delete_game(game_id)
             return
 
         if game_end < game_start:
             await update.message.reply_text(
-                    "Дата заввершения не может быть раньше даты начала."
-                )
+                    "Дата завершения не может быть раньше даты начала."
+            )
+
+            await update.message.reply_text(
+                "Введите дату начала фестиваля в формате ДД.ММ.ГГ"
+            )
+            context.user_data["state"] = STATE_ADD_GAME_DATE_START
+            return
         elif not self.db.add_festival(
                 game_id,
                 context.user_data.get("new_game_name"),
