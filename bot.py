@@ -21,7 +21,7 @@ from telegram.ext import (
 )
 
 from postgres_db import PostgresDB
-from rating_chgk_api import RatingChgkAPI
+from rating_api import RatingAPI
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -72,7 +72,7 @@ ADD_PLAYER_CALLBACK = 'add_player'
 SHOW_POLL_CALLBACK = 'show_poll'
 
 
-class ChgkBot:
+class KvrmBot:
     def __init__(self):
         # =============================================================
         # Конфигурация из environment
@@ -86,7 +86,7 @@ class ChgkBot:
             user=os.environ.get("POSTGRES_USER", "postgres"),
             password=os.environ.get("POSTGRES_PASSWORD", "postgres")
         )
-        self.rating_api = RatingChgkAPI()
+        self.rating_api = RatingAPI()
 
         self.application = (
             Application.builder()
@@ -521,7 +521,7 @@ class ChgkBot:
             return
 
         try:
-            rating_data = self.rating_api.get_tournament(game_id)
+            rating_data = await self.rating_api.get_tournament(game_id)
         except Exception as exc:
             logger.exception(exc)
 
@@ -1088,7 +1088,7 @@ class ChgkBot:
             return
 
         try:
-            data = self.rating_api.get_player(rating_id)
+            data = await self.rating_api.get_player(rating_id)
         except Exception as exc:
             logger.exception(exc)
 
@@ -1270,9 +1270,14 @@ class ChgkBot:
 
         try:
             self.application.run_polling()
+            self.application.post_shutdown(self.shutdown)
         finally:
             self.db.close()
+            self.shutdown()
+
+    async def shutdown(self):
+        await self.rating_api.close()
 
 if __name__ == "__main__":
-    bot = ChgkBot()
+    bot = KvrmBot()
     bot.run()
