@@ -303,7 +303,9 @@ class PostgresDB:
                 g.base_id,
                 g.name,
                 g.place,
-                g."date_start"
+                g."date_start",
+                g."date_end",
+                g.is_festival
             FROM ready_to_play r
             JOIN games g
                 ON g.base_id = r.game
@@ -320,43 +322,6 @@ class PostgresDB:
     # PLAYERS
     # =====================================================================
 
-    def add_player(
-        self,
-        base_id: int,
-        name: str,
-        surname: str,
-        patronimyc: str,
-        tg_username: str
-    ) -> bool:
-        """
-        Добавляет игрока по base_id.
-        """
-        try:
-            with self.connection.cursor() as cursor:
-                cursor.execute("""
-                    INSERT INTO players (
-                        base_id,
-                        name,
-                        surname,
-                        patronymic,
-                        tg_username
-                    )
-                    VALUES (%s, %s, %s, %s, %s)
-                """, (
-                    base_id,
-                    name,
-                    surname,
-                    patronimyc,
-                    tg_username
-                ))
-
-            self.connection.commit()
-            return True
-
-        except Error:
-            self.connection.rollback()
-            return False
-
     def add_player_by_tg_id(self, tg_id: int, tg_username: str) -> bool:
         """
         Добавляет игрока, указывая только Telegram ID.
@@ -365,14 +330,21 @@ class PostgresDB:
             with self.connection.cursor() as cursor:
 
                 cursor.execute("""
-                    SELECT id
+                    SELECT tg_username
                     FROM players
                     WHERE tg_id = %s
                 """, (tg_id, ))
 
                 result = cursor.fetchone()
-                if result:
+                if result and result[0] != tg_username:
                     # уже добален
+
+                    cursor.execute("""
+                        UPDATE players
+                        SET tg_username = %s
+                        WHERE tg_id = %s
+                    """, (tg_username, tg_id, ))
+
                     return True
 
                 cursor.execute("""

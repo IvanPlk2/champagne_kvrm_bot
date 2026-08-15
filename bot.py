@@ -328,24 +328,30 @@ class ChgkBot:
 
         lines = []
 
-        for game in games:
-            game_id, base_id, name, place, date_start = game
+        try:
+            for game in games:
+                game_id, base_id, name, place, date_start, date_end, is_fest = game
 
-            when_text = (
-                date_start.strftime("%d.%m.%y %H:%M")
-                if date_start
-                else "Дата не указана"
+                if is_fest:
+                    if date_start == date_end:
+                        when_text = date_start.strftime("%d.%m.%y")
+                    else:
+                        start_txt = date_start.strftime("%d.%m.%y")
+                        end_txt = date_end.strftime("%d.%m.%y")
+                        when_text = '-'.join([start_txt, end_txt])
+                else:
+                    when_text = date_start.strftime("%d.%m.%y %H:%M")
+                lines.append(
+                    f"{base_id}. {name} — "
+                    f"{place or 'Место не указано'} — "
+                    f"{when_text}"
+                )
+
+            await update.message.reply_text(
+                "\n".join(lines)
             )
-
-            lines.append(
-                f"{base_id}. {name} — "
-                f"{place or 'Место не указано'} — "
-                f"{when_text}"
-            )
-
-        await update.message.reply_text(
-            "\n".join(lines)
-        )
+        except Exception:
+            await update.message.reply_text("Произошла ошибка при попытке показать мои турниры.")
 
     # =================================================================
     # С КЕМ ИГРАЮ
