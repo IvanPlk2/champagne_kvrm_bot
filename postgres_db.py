@@ -301,30 +301,6 @@ class PostgresDB:
             self.connection.rollback()
             return False
 
-    def delete_game(
-            self,
-            id: int
-        ) -> bool:
-            """
-            Устанавливает дату и время проведения игры.
-            """
-            try:
-                self.check_connection()
-                with self.connection.cursor() as cursor:
-
-                    cursor.execute("""
-                        DELETE FROM games
-                        WHERE base_id = %s
-                    """, (id,))
-                    updated = cursor.rowcount > 0
-
-                self.connection.commit()
-                return updated
-
-            except Error:
-                self.connection.rollback()
-                return False
-
     def get_my_tournaments(self, tg_id: int):
         """
         Возвращает первые 10 будущих турниров,

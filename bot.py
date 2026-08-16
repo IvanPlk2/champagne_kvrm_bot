@@ -22,6 +22,7 @@ from telegram.ext import (
 
 from postgres_db import PostgresDB
 from rating_api import RatingAPI
+from utils import get_when_text
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -44,10 +45,10 @@ BTN_ADD_GAME = "Добавить игру"
 BTN_ADD_FESTIVAL = "Добавить фестиваль"
 BTN_UPDATE_PLACE = "Обновить место"
 BTN_CREATE_POLL = "Создать опрос"
-BTN_UPDATE_POLL = "Обновить опрос"
 BTN_SHOW_POLL = "Показать опрос"
 BTN_LINK_PLAYER = "Привязать к рейтингу"
 BTN_ALL_TOURNAMENTS = "Показать турниры"
+BTN_LEGIONARY = "Создать сообщение для легчата"
 
 BTN_YES = "Да"
 BTN_NO = "Нет"
@@ -70,6 +71,10 @@ PLACE_CALLBACK = 'place'
 POLL_CALLBACK = 'poll'
 ADD_PLAYER_CALLBACK = 'add_player'
 SHOW_POLL_CALLBACK = 'show_poll'
+LEGIONARY_CALLBACK = 'legionary'
+
+TEAM_NAME = "Советское Шампанское"
+TEAM_LINK = "https://rating.pecheny.me/players/63516"
 
 
 class KvrmBot:
@@ -140,10 +145,10 @@ class KvrmBot:
                 [BTN_ADD_FESTIVAL],
                 [BTN_UPDATE_PLACE],
                 [BTN_CREATE_POLL],
-                # [BTN_UPDATE_POLL],
                 [BTN_SHOW_POLL],
                 [BTN_LINK_PLAYER],
                 [BTN_ALL_TOURNAMENTS],
+                [BTN_LEGIONARY],
             ])
 
         return ReplyKeyboardMarkup(
@@ -280,10 +285,6 @@ class KvrmBot:
             await self.show_games_for_poll(update)
             return
 
-        #if is_admin and text == BTN_UPDATE_POLL:
-        #    await self.show_games_for_poll(update, has_poll=True)
-        #    return
-
         if is_admin and text == BTN_SHOW_POLL:
             await self.show_games_with_polls(update)
             return
@@ -294,6 +295,10 @@ class KvrmBot:
 
         if is_admin and text == BTN_ALL_TOURNAMENTS:
             await self.show_tournaments(update)
+            return
+
+        if is_admin and text == BTN_LEGIONARY:
+            await self.legionary(update)
             return
 
         if text == BTN_BACK:
@@ -344,15 +349,7 @@ class KvrmBot:
             for game in games:
                 game_id, base_id, name, place, date_start, date_end, is_fest = game
 
-                if is_fest:
-                    if date_start == date_end:
-                        when_text = date_start.strftime("%d.%m.%y")
-                    else:
-                        start_txt = date_start.strftime("%d.%m.%y")
-                        end_txt = date_end.strftime("%d.%m.%y")
-                        when_text = '-'.join([start_txt, end_txt])
-                else:
-                    when_text = date_start.strftime("%d.%m.%y %H:%M")
+                when_text = get_when_text(date_start, date_end, is_fest)
                 lines.append(
                     f"{base_id}. {name} — "
                     f"{place or 'Место не указано'} — "
@@ -486,6 +483,15 @@ class KvrmBot:
             await self.show_poll(
                 query,
                 context.bot,
+                game_id
+            )
+            return
+
+        if callback_cmd == LEGIONARY_CALLBACK:
+            game_id = int(text)
+            await self.create_msg_for_legionary_chat(
+                query,
+                context,
                 game_id
             )
             return
@@ -934,14 +940,8 @@ class KvrmBot:
 
         try:
 
-            if game['is_festival']:
-                date_start = game['date_start'].strftime("%d.%m.%y")
-                date_end = game['date_end'].strftime("%d.%m.%y")
-                when_text = '-'.join([date_start, date_end])
-                question = '. '.join([game["name"], game["place"], when_text])
-            else:
-                when_text = game['date_start'].strftime("%d.%m.%y %H:%M")
-                question = ' - '.join([game["name"], game["place"], when_text])
+            when_text = get_when_text(game['date_start'], game['date_end'], game['is_festival'])
+            question = '. '.join([game["name"], game["place"], when_text])
 
             message = await context.bot.send_poll(
                 chat_id=TEAM_CHAT_ID,
@@ -1190,6 +1190,64 @@ class KvrmBot:
             "Все турниры:",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
+
+    # =================================================================
+    # СООБЩЕНИЕ ДЛЯ ЧАТА ЛЕГИОНЕРОВ
+    # =================================================================
+
+    async def legionary(self, update):
+
+        games = self.db.get_future_games(10, None)
+
+        if not games:
+            await update.message.reply_text(
+                "Турниров нет."
+            )
+            return
+
+        keyboard = []
+
+        for game in games:
+            game_id, name, place, date_start = game
+
+            keyboard.append([
+                InlineKeyboardButton(
+                    text=name or str(game_id),
+                    callback_data=f"{LEGIONARY_CALLBACK}:{game_id}",
+                )
+            ])
+
+        await update.message.reply_text(
+            "Выберите турнир:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+    async def create_msg_for_legionary_chat(
+            self,
+            update: Update,
+            context: ContextTypes.DEFAULT_TYPE,
+            game_id: int) -> None:
+
+        game = self.db.get_game(game_id)
+
+        if not game:
+            text = "Игра не найдена."
+        else:
+            lines = []
+
+            when_text = get_when_text(game["date_start"], game["date_end"], game["is_festival"])
+            lines.extend([
+                "#ищуигрока",
+                game["name"],
+                game["place"],
+                when_text,
+                TEAM_NAME,
+                TEAM_LINK
+            ])
+
+            text = "\n".join(lines)
+
+        await update.message.reply_text(text)
 
     # =================================================================
     # POLL ANSWER
