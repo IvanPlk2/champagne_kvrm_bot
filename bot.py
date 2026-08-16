@@ -74,7 +74,7 @@ SHOW_POLL_CALLBACK = 'show_poll'
 LEGIONARY_CALLBACK = 'legionary'
 
 TEAM_NAME = "Советское Шампанское"
-TEAM_LINK = "https://rating.pecheny.me/players/63516"
+TEAM_LINK = "https://rating.pecheny.me/teams/85915"
 
 
 class KvrmBot:
