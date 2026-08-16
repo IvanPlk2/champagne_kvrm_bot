@@ -386,7 +386,7 @@ class KvrmBot:
         keyboard = []
 
         for game in games:
-            game_id, base_id, name, place, date_start = game
+            game_id, base_id, name, place, date_start, date_end, is_fest = game
 
             keyboard.append([
                 InlineKeyboardButton(
