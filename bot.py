@@ -1328,7 +1328,6 @@ class KvrmBot:
 
         try:
             self.application.run_polling()
-            self.application.post_shutdown(self.shutdown)
         finally:
             self.db.close()
             self.shutdown()
