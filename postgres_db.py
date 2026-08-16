@@ -346,16 +346,16 @@ class PostgresDB:
                 """, (tg_id, ))
 
                 result = cursor.fetchone()
-                if result and result[0] != tg_username:
+                if result:
                     # уже добален
+                    if result[0] != tg_username:
+                        cursor.execute("""
+                            UPDATE players
+                            SET tg_username = %s
+                            WHERE tg_id = %s
+                        """, (tg_username, tg_id, ))
 
-                    cursor.execute("""
-                        UPDATE players
-                        SET tg_username = %s
-                        WHERE tg_id = %s
-                    """, (tg_username, tg_id, ))
-
-                    self.connection.commit()
+                        self.connection.commit()
                     return True
 
                 cursor.execute("""
