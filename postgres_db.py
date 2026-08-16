@@ -13,16 +13,44 @@ class PostgresDB:
         user: str,
         password: str
     ):
+        self.host = host
+        self.port = port
+        self.database = database
+        self.user = user
+        self.password = password
+        self.connection = None
+        self._connect()
+        self._create_tables()
+
+    def _connect(self):
+        if self.connection is not None:
+            try:
+                self.connection.close()
+            except Exception:
+                pass
+
         self.connection = psycopg2.connect(
-            host=host,
-            port=port,
-            database=database,
-            user=user,
-            password=password
+            host=self.host,
+            port=self.port,
+            database=self.database,
+            user=self.user,
+            password=self.password,
         )
 
         self.connection.autocommit = False
-        self._create_tables()
+
+
+    def check_connection(self):
+        try:
+            if self.connection is None or self.connection.closed:
+                self._connect()
+                return
+
+            with self.connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+
+        except (psycopg2.InterfaceError, psycopg2.OperationalError):
+            self._connect()
 
     def _create_tables(self) -> None:
         """
@@ -119,6 +147,7 @@ class PostgresDB:
 
     def set_team_notified(self, game_base_id: int, value: bool) -> bool:
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     UPDATE games
@@ -148,6 +177,7 @@ class PostgresDB:
         date_start: datetime
     ) -> bool:
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO games (
@@ -185,6 +215,7 @@ class PostgresDB:
         date_end: datetime
     ) -> bool:
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO games (
@@ -219,6 +250,7 @@ class PostgresDB:
         Устанавливает место проведения игры.
         """
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     UPDATE games
@@ -245,6 +277,7 @@ class PostgresDB:
         Устанавливает дату и время проведения игры.
         """
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 if date_end:
                     cursor.execute("""
@@ -276,6 +309,7 @@ class PostgresDB:
             Устанавливает дату и время проведения игры.
             """
             try:
+                self.check_connection()
                 with self.connection.cursor() as cursor:
 
                     cursor.execute("""
@@ -327,8 +361,8 @@ class PostgresDB:
         Добавляет игрока, указывая только Telegram ID.
         """
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
-
                 cursor.execute("""
                     SELECT tg_username
                     FROM players
@@ -345,6 +379,7 @@ class PostgresDB:
                         WHERE tg_id = %s
                     """, (tg_username, tg_id, ))
 
+                    self.connection.commit()
                     return True
 
                 cursor.execute("""
@@ -366,6 +401,7 @@ class PostgresDB:
         Если игрок не найден — None.
         """
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     SELECT base_id
@@ -391,6 +427,7 @@ class PostgresDB:
         Если игрок не найден — False.
         """
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     SELECT is_admin
@@ -414,6 +451,7 @@ class PostgresDB:
         Изменяет рейтинг игрока по base_id.
         """
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     UPDATE players
@@ -453,6 +491,7 @@ class PostgresDB:
             ничего не делает.
         """
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     SELECT id
@@ -494,6 +533,7 @@ class PostgresDB:
 
     def fetch_all(self, query: str, params=None):
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute(query, params)
                 result = cursor.fetchall()
@@ -507,6 +547,7 @@ class PostgresDB:
 
     def is_player_in_db(self, tg_id: int) -> bool:
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     SELECT tg_id
@@ -534,6 +575,7 @@ class PostgresDB:
                 poll = ' and (poll_id is NULL or poll is NULL)'
             elif has_poll is True:
                 poll = ' and not (poll_id is NULL or poll is NULL)'
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     SELECT
@@ -558,6 +600,7 @@ class PostgresDB:
 
     def get_game(self, game_id: int):
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     SELECT
@@ -604,6 +647,7 @@ class PostgresDB:
         poll_id: str
     ) -> bool:
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     UPDATE games
@@ -628,6 +672,7 @@ class PostgresDB:
 
     def get_game_by_poll_id(self, poll_id: str):
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
 
 
@@ -669,6 +714,7 @@ class PostgresDB:
 
     def get_unlinked_players(self, limit: int = 10):
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     SELECT
@@ -705,6 +751,7 @@ class PostgresDB:
         Обновляет данные игрока по Telegram ID.
         """
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     UPDATE players
@@ -736,6 +783,7 @@ class PostgresDB:
         base_id: int
     ):
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     SELECT
@@ -767,6 +815,7 @@ class PostgresDB:
     # Проверка числа играющих
     def get_ready_players_count(self, game_base_id: int) -> int:
         try:
+            self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
                     SELECT COUNT(*)
