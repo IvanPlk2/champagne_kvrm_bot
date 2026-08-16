@@ -319,12 +319,12 @@ class KvrmBot:
 
         if update.message:
             await update.message.reply_text(
-                "Главное меню:",
+                "Выберите действие:",
                 reply_markup=self.main_keyboard(is_admin),
             )
         elif update.callback_query:
             await update.callback_query.message.reply_text(
-                "Главное меню:",
+                "Выберите действие:",
                 reply_markup=self.main_keyboard(is_admin),
             )
 
