@@ -20,9 +20,11 @@ from telegram.ext import (
     filters,
 )
 
-from postgres_db import PostgresDB
+from sqlite_db import SqliteDB
 from rating_api import RatingAPI
 from utils import get_when_text
+
+SQLITE_DB_PATH = os.path.join(os.getcwd(),  "data", "sqlite_db.db")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -84,12 +86,13 @@ class KvrmBot:
         # =============================================================
 
         self.api_key = os.environ['API_KEY']
-        self.db = PostgresDB(
-            host=os.environ.get("POSTGRES_HOST", "localhost"),
-            port=int(os.environ.get("POSTGRES_PORT", "5432")),
-            database=os.environ.get("POSTGRES_DATABASE", "champagne"),
-            user=os.environ.get("POSTGRES_USER", "postgres"),
-            password=os.environ.get("POSTGRES_PASSWORD", "postgres")
+        os.makedirs(os.path.dirname(SQLITE_DB_PATH), exist_ok=True)
+        self.db = SqliteDB(
+            host="",
+            port=0,
+            database=SQLITE_DB_PATH,
+            user="",
+            password="",
         )
         self.rating_api = RatingAPI()
 
