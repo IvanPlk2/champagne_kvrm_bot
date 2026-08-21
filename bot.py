@@ -952,7 +952,7 @@ class KvrmBot:
                     "Окститесь",
                     "Я - томат",
                 ],
-                type="quiz",
+                # type="quiz",
                 is_anonymous=False,
                 allows_multiple_answers=True,
                 correct_option_id=0,
