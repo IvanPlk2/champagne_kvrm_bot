@@ -100,6 +100,18 @@ class SqliteDB:
                     ON games (base_id);
                 """)
 
+                cursor.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    idx_games_poll_id
+                    ON games (poll_id);
+                """)
+
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS
+                    idx_games_date_start
+                    ON games (date_start);
+                """)
+
                 # =========================================================
                 # players
                 # =========================================================
