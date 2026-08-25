@@ -556,8 +556,11 @@ class KvrmBot:
             await self.reset_keyboard_and_state(update, context)
             return
 
-        context.user_data["new_game"] = {"base_id": rating_data["id"],
-                                         "name": rating_data["name"]}
+        context.user_data["new_game"] = {
+            "base_id": rating_data["id"],
+            "name": rating_data["name"],
+            "difficulty_level": rating_data.get("difficulty_level"),
+        }
         context.user_data["state"] = STATE_ADD_GAME_CONFIRM
 
         await update.message.reply_text(
@@ -598,6 +601,7 @@ class KvrmBot:
 
         context.user_data["new_game_base_id"] = data["base_id"]
         context.user_data["new_game_name"] = data.get("name")
+        context.user_data["new_game_difficulty_level"] = data.get("difficulty_level")
         context.user_data["state"] = STATE_ADD_GAME_PLACE
 
         await update.message.reply_text(
@@ -662,7 +666,8 @@ class KvrmBot:
                 context.user_data.get("new_game_name"),
                 tg_id,
                 context.user_data.get("new_game_place"),
-                game_when
+                game_when,
+                context.user_data.get("new_game_difficulty_level"),
             ):
                 await update.message.reply_text(
                     "Не удалось добавить игру."
@@ -742,7 +747,8 @@ class KvrmBot:
                 tg_id,
                 context.user_data.get("new_game_place"),
                 game_start,
-                game_end
+                game_end,
+                context.user_data.get("new_game_difficulty_level"),
             ):
                 await update.message.reply_text(
                     "Не удалось добавить фестиваль."
@@ -945,7 +951,12 @@ class KvrmBot:
         try:
 
             when_text = get_when_text(game['date_start'], game['date_end'], game['is_festival'])
-            question = '. '.join([game["name"], game["place"], when_text])
+            question_parts = [game["name"]]
+            difficulty_level = game.get("difficulty_level")
+            if difficulty_level is not None:
+                question_parts.append(f"DL {difficulty_level}")
+            question_parts.extend([game["place"], when_text])
+            question = '. '.join(question_parts)
 
             message = await context.bot.send_poll(
                 chat_id=TEAM_CHAT_ID,

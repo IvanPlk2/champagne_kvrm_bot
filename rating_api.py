@@ -25,7 +25,8 @@ class RatingAPI:
         return {
             "id": data.get("id"),
             "name": data.get("name"),
-            "is_festival": (data.get("type") or {}).get('id') in {2, 6, "2", "6"}
+            "is_festival": (data.get("type") or {}).get('id') in {2, 6, "2", "6"},
+            "difficulty_level": data.get("difficultyForecast"),
         }
 
     async def get_player(self, player_id: int):

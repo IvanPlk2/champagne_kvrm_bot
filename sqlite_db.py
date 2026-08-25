@@ -90,9 +90,18 @@ class SqliteDB:
                         poll INTEGER,
                         poll_id TEXT,
                         team_notified INTEGER DEFAULT 0,
-                        is_festival INTEGER NOT NULL DEFAULT 0
+                        is_festival INTEGER NOT NULL DEFAULT 0,
+                        difficulty_level REAL
                     );
                 """)
+
+                cursor.execute("PRAGMA table_info(games)")
+                games_columns = {row[1] for row in cursor.fetchall()}
+                if "difficulty_level" not in games_columns:
+                    cursor.execute("""
+                        ALTER TABLE games
+                        ADD COLUMN difficulty_level REAL;
+                    """)
 
                 cursor.execute("""
                     CREATE UNIQUE INDEX IF NOT EXISTS
@@ -202,7 +211,8 @@ class SqliteDB:
         name: str,
         who_added: int,
         place: str,
-        date_start: datetime
+        date_start: datetime,
+        difficulty_level: Optional[float] = None,
     ) -> bool:
         try:
             self.check_connection()
@@ -214,16 +224,18 @@ class SqliteDB:
                         who_added,
                         place,
                         date_start,
-                        is_festival
+                        is_festival,
+                        difficulty_level
                     )
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (
                     base_id,
                     name,
                     who_added,
                     place,
                     date_start,
-                    0
+                    0,
+                    difficulty_level,
                 ))
 
             self.connection.commit()
@@ -240,7 +252,8 @@ class SqliteDB:
         who_added: int,
         place: str,
         date_start: datetime,
-        date_end: datetime
+        date_end: datetime,
+        difficulty_level: Optional[float] = None,
     ) -> bool:
         try:
             self.check_connection()
@@ -253,9 +266,10 @@ class SqliteDB:
                         place,
                         date_start,
                         date_end,
-                        is_festival
+                        is_festival,
+                        difficulty_level
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     base_id,
                     name,
@@ -263,7 +277,8 @@ class SqliteDB:
                     place,
                     date_start,
                     date_end,
-                    1
+                    1,
+                    difficulty_level,
                 ))
 
             self.connection.commit()
@@ -617,7 +632,8 @@ class SqliteDB:
                         who_added,
                         poll,
                         poll_id,
-                        is_festival
+                        is_festival,
+                        difficulty_level
                     FROM games
                     WHERE base_id = ?
                 """, (game_id,))
@@ -637,7 +653,8 @@ class SqliteDB:
                 "who_added": result[6],
                 "poll": result[7],
                 "poll_id": result[8],
-                "is_festival": bool(result[9])
+                "is_festival": bool(result[9]),
+                "difficulty_level": result[10],
             }
 
         except Error:

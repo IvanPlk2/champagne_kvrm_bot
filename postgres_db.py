@@ -74,8 +74,14 @@ class PostgresDB:
                         poll BIGINT,
                         poll_id TEXT,
                         team_notified BOOLEAN DEFAULT FALSE,
-                        is_festival BOOLEAN NOT NULL DEFAULT FALSE
+                        is_festival BOOLEAN NOT NULL DEFAULT FALSE,
+                        difficulty_level DOUBLE PRECISION
                     );
+                """)
+
+                cursor.execute("""
+                    ALTER TABLE games
+                    ADD COLUMN IF NOT EXISTS difficulty_level DOUBLE PRECISION;
                 """)
 
                 cursor.execute("""
@@ -186,7 +192,8 @@ class PostgresDB:
         name: str,
         who_added: int,
         place: str,
-        date_start: datetime
+        date_start: datetime,
+        difficulty_level: Optional[float] = None,
     ) -> bool:
         try:
             self.check_connection()
@@ -198,16 +205,18 @@ class PostgresDB:
                         who_added,
                         place,
                         date_start,
-                        is_festival
+                        is_festival,
+                        difficulty_level
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, (
                     base_id,
                     name,
                     who_added,
                     place,
                     date_start,
-                    False
+                    False,
+                    difficulty_level,
                 ))
 
             self.connection.commit()
@@ -224,7 +233,8 @@ class PostgresDB:
         who_added: int,
         place: str,
         date_start: datetime,
-        date_end: datetime
+        date_end: datetime,
+        difficulty_level: Optional[float] = None,
     ) -> bool:
         try:
             self.check_connection()
@@ -237,9 +247,10 @@ class PostgresDB:
                         place,
                         date_start,
                         date_end,
-                        is_festival
+                        is_festival,
+                        difficulty_level
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     base_id,
                     name,
@@ -247,7 +258,8 @@ class PostgresDB:
                     place,
                     date_start,
                     date_end,
-                    True
+                    True,
+                    difficulty_level,
                 ))
 
             self.connection.commit()
@@ -601,7 +613,8 @@ class PostgresDB:
                         who_added,
                         poll,
                         poll_id,
-                        is_festival
+                        is_festival,
+                        difficulty_level
                     FROM games
                     WHERE base_id = %s
                 """, (game_id,))
@@ -621,7 +634,8 @@ class PostgresDB:
                 "who_added": result[6],
                 "poll": result[7],
                 "poll_id": result[8],
-                "is_festival": result[9]
+                "is_festival": result[9],
+                "difficulty_level": result[10],
             }
 
         except Error:
