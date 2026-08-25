@@ -2,6 +2,8 @@
 
 import httpx
 
+from utils import parse_rating_datetime
+
 
 class RatingAPI:
     BASE_URL = "https://api.rating.chgk.net"
@@ -27,6 +29,8 @@ class RatingAPI:
             "name": data.get("name"),
             "is_festival": (data.get("type") or {}).get('id') in {2, 6, "2", "6"},
             "difficulty_level": data.get("difficultyForecast"),
+            "date_start": parse_rating_datetime(data.get("dateStart")),
+            "date_end": parse_rating_datetime(data.get("dateEnd")),
         }
 
     async def get_player(self, player_id: int):

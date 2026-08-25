@@ -22,7 +22,12 @@ from telegram.ext import (
 
 from sqlite_db import SqliteDB
 from rating_api import RatingAPI
-from utils import get_when_text
+from utils import (
+    format_msk_window,
+    get_when_text,
+    is_datetime_in_rating_window,
+    to_msk_naive,
+)
 
 SQLITE_DB_PATH = os.environ["SQLITE_PATH"]
 
@@ -556,15 +561,40 @@ class KvrmBot:
             await self.reset_keyboard_and_state(update, context)
             return
 
+        if context.user_data["is_festival"] and not rating_data.get("date_start"):
+            await update.message.reply_text(
+                "На сайте рейтинга нет дат проведения. "
+                "Фестиваль нельзя добавить."
+            )
+            await self.reset_keyboard_and_state(update, context)
+            return
+
         context.user_data["new_game"] = {
             "base_id": rating_data["id"],
             "name": rating_data["name"],
             "difficulty_level": rating_data.get("difficulty_level"),
+            "date_start": rating_data.get("date_start"),
+            "date_end": rating_data.get("date_end"),
         }
         context.user_data["state"] = STATE_ADD_GAME_CONFIRM
 
+        confirm_text = f"Добавить {rating_data.get('name')}?"
+        rating_start = rating_data.get("date_start")
+        rating_end = rating_data.get("date_end")
+        if rating_start or rating_end:
+            if context.user_data["is_festival"]:
+                when_text = get_when_text(
+                    to_msk_naive(rating_start),
+                    to_msk_naive(rating_end),
+                    True,
+                )
+            else:
+                when_text = format_msk_window(rating_start, rating_end)
+            if when_text:
+                confirm_text += f"\nСроки: {when_text}"
+
         await update.message.reply_text(
-            f"Добавить {rating_data.get('name')}?",
+            confirm_text,
             reply_markup=self.yes_no_keyboard(),
         )
 
@@ -602,6 +632,8 @@ class KvrmBot:
         context.user_data["new_game_base_id"] = data["base_id"]
         context.user_data["new_game_name"] = data.get("name")
         context.user_data["new_game_difficulty_level"] = data.get("difficulty_level")
+        context.user_data["new_game_date_start"] = data.get("date_start")
+        context.user_data["new_game_date_end"] = data.get("date_end")
         context.user_data["state"] = STATE_ADD_GAME_PLACE
 
         await update.message.reply_text(
@@ -620,16 +652,21 @@ class KvrmBot:
             return
 
         context.user_data["new_game_place"] = update.message.text
+
+        if context.user_data["is_festival"]:
+            await self.save_festival_from_rating(update, context)
+            return
+
         context.user_data["state"] = STATE_ADD_GAME_DATE_START
 
-        if not context.user_data["is_festival"]:
-            await update.message.reply_text(
-                "Введите дату в формате ДД.ММ.ГГ ЧЧ:ММ"
-            )
-        else:
-            await update.message.reply_text(
-                "Введите дату начала фестиваля в формате ДД.ММ.ГГ"
-            )
+        prompt = "Введите дату в формате ДД.ММ.ГГ ЧЧ:ММ"
+        window = format_msk_window(
+            context.user_data.get("new_game_date_start"),
+            context.user_data.get("new_game_date_end"),
+        )
+        if window:
+            prompt += f"\nСрок проведения (GMT+3): {window}"
+        await update.message.reply_text(prompt)
 
     async def handle_add_game_date_start(
         self,
@@ -661,6 +698,21 @@ class KvrmBot:
                 )
                 return
 
+            rating_start = context.user_data.get("new_game_date_start")
+            rating_end = context.user_data.get("new_game_date_end")
+            if not is_datetime_in_rating_window(
+                game_when,
+                rating_start,
+                rating_end,
+            ):
+                window = format_msk_window(rating_start, rating_end) or "не указан"
+                await update.message.reply_text(
+                    "Введённая дата не входит в сроки проведения турнира "
+                    f"({window}, GMT+3).\n"
+                    "Исправьте дату."
+                )
+                return
+
             if not self.db.add_game(
                 game_id,
                 context.user_data.get("new_game_name"),
@@ -679,80 +731,68 @@ class KvrmBot:
             )
 
             await self.reset_keyboard_and_state(update, context)
-        else:
+            return
 
-            try:
-                game_when = datetime.strptime(
-                    update.message.text,
-                    "%d.%m.%y"
-                )
-            except ValueError:
-                await update.message.reply_text(
-                    "Неверный формат даты.\n"
-                    "Используйте ДД.ММ.ГГ"
-                )
-                return
-
-            context.user_data["new_game_start"] = update.message.text
-            context.user_data["state"] = STATE_ADD_GAME_DATE_END
-
-            await update.message.reply_text(
-                "Введите дату завершения фестиваля в формате ДД.ММ.ГГ"
-            )
-
+        await self.save_festival_from_rating(update, context)
 
     async def handle_add_game_date_end(
         self,
         update: Update,
         context: ContextTypes.DEFAULT_TYPE
     ):
+        await self.save_festival_from_rating(update, context)
+
+    async def save_festival_from_rating(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ):
         game_id = context.user_data.get("new_game_base_id")
-
         tg_id = update.effective_user.id
-        if tg_id is None:
+        date_start = to_msk_naive(context.user_data.get("new_game_date_start"))
+        date_end = to_msk_naive(context.user_data.get("new_game_date_end"))
+
+        if date_start is None:
             await update.message.reply_text(
-                "Пользователь не найден в базе."
+                "На сайте рейтинга нет дат проведения. "
+                "Фестиваль нельзя добавить."
             )
-            context.user_data["state"] = STATE_NONE
-            return
-        try:
-            game_start = datetime.strptime(
-                context.user_data["new_game_start"],
-                "%d.%m.%y"
-            )
-            game_end = datetime.strptime(
-                update.message.text,
-                "%d.%m.%y"
-            )
-        except ValueError:
-            await update.message.reply_text(
-                "Неверный формат даты.\n"
-                "Используйте ДД.ММ.ГГ"
-            )
+            await self.reset_keyboard_and_state(update, context)
             return
 
-        if game_end < game_start:
-            await update.message.reply_text(
-                    "Дата завершения не может быть раньше даты начала."
-            )
+        if date_end is None:
+            date_end = date_start
 
+        await self.finish_add_festival(
+            update,
+            context,
+            game_id,
+            tg_id,
+            date_start,
+            date_end,
+        )
+
+    async def finish_add_festival(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        game_id,
+        tg_id,
+        date_start,
+        date_end,
+    ):
+        if not self.db.add_festival(
+            game_id,
+            context.user_data.get("new_game_name"),
+            tg_id,
+            context.user_data.get("new_game_place"),
+            date_start,
+            date_end,
+            context.user_data.get("new_game_difficulty_level"),
+        ):
             await update.message.reply_text(
-                "Введите дату начала фестиваля в формате ДД.ММ.ГГ"
+                "Не удалось добавить фестиваль."
             )
-            context.user_data["state"] = STATE_ADD_GAME_DATE_START
-            return
-        elif not self.db.add_festival(
-                game_id,
-                context.user_data.get("new_game_name"),
-                tg_id,
-                context.user_data.get("new_game_place"),
-                game_start,
-                game_end,
-                context.user_data.get("new_game_difficulty_level"),
-            ):
-                await update.message.reply_text(
-                    "Не удалось добавить фестиваль."
-                )
         else:
             await update.message.reply_text(
                 "Фестиваль добавлен."
@@ -950,12 +990,19 @@ class KvrmBot:
 
         try:
 
-            when_text = get_when_text(game['date_start'], game['date_end'], game['is_festival'])
+            when_text = get_when_text(
+                game['date_start'],
+                game['date_end'],
+                game['is_festival'],
+            )
             question_parts = [game["name"]]
             difficulty_level = game.get("difficulty_level")
             if difficulty_level is not None:
                 question_parts.append(f"DL {difficulty_level}")
-            question_parts.extend([game["place"], when_text])
+            if game.get("place"):
+                question_parts.append(game["place"])
+            if when_text:
+                question_parts.append(when_text)
             question = '. '.join(question_parts)
 
             message = await context.bot.send_poll(
