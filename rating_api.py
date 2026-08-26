@@ -1,8 +1,12 @@
-
+from datetime import date
 
 import httpx
 
 from utils import parse_rating_datetime
+
+# В текущем API рейтинга: 3 — «Синхрон».
+# В старой нумерации синхрон был типом 2.
+TOURNAMENT_TYPE_SYNCHRON = 3
 
 
 class RatingAPI:
@@ -18,12 +22,7 @@ class RatingAPI:
     async def close(self):
         await self.client.aclose()
 
-    async def get_tournament(self, tournament_id: int):
-        response = await self.client.get(
-            f"/tournaments/{tournament_id}"
-        )
-        response.raise_for_status()
-        data = response.json()
+    def _parse_tournament(self, data: dict):
         return {
             "id": data.get("id"),
             "name": data.get("name"),
@@ -32,6 +31,51 @@ class RatingAPI:
             "date_start": parse_rating_datetime(data.get("dateStart")),
             "date_end": parse_rating_datetime(data.get("dateEnd")),
         }
+
+    async def get_tournament(self, tournament_id: int):
+        response = await self.client.get(
+            f"/tournaments/{tournament_id}"
+        )
+        response.raise_for_status()
+        return self._parse_tournament(response.json())
+
+    async def list_synchrons(
+        self,
+        date_end_from: date,
+        date_end_to: date,
+        language: str = "ru",
+        items_per_page: int = 50,
+    ):
+        response = await self.client.get(
+            "/tournaments.json",
+            params={
+                "type": TOURNAMENT_TYPE_SYNCHRON,
+                "language": language,
+                "dateEnd[after]": date_end_from.isoformat(),
+                "dateEnd[before]": date_end_to.isoformat(),
+                "itemsPerPage": items_per_page,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, dict):
+            data = data.get("hydra:member") or data.get("items") or []
+
+        tournaments = [
+            self._parse_tournament(item)
+            for item in data
+            if isinstance(item, dict)
+        ]
+        tournaments.sort(
+            key=lambda item: (
+                item.get("date_start") is None,
+                item.get("date_start"),
+                item.get("date_end") is None,
+                item.get("date_end"),
+                item.get("id") or 0,
+            )
+        )
+        return tournaments
 
     async def get_player(self, player_id: int):
         response = await self.client.get(

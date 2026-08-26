@@ -617,6 +617,23 @@ class SqliteDB:
             self.connection.rollback()
             return []
 
+    def get_all_game_base_ids(self) -> set:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT base_id
+                    FROM games
+                """)
+                result = cursor.fetchall()
+
+            self.connection.commit()
+            return {row[0] for row in result}
+
+        except Error:
+            self.connection.rollback()
+            return set()
+
     def get_game(self, game_id: int):
         try:
             self.check_connection()

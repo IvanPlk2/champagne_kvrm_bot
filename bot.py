@@ -1,6 +1,6 @@
 import os
 import logging
-from datetime import datetime, date
+from datetime import datetime, timedelta
 from typing import Optional
 
 from telegram import (
@@ -23,6 +23,7 @@ from telegram.ext import (
 from sqlite_db import SqliteDB
 from rating_api import RatingAPI
 from utils import (
+    MSK_TZ,
     format_msk_window,
     get_when_text,
     is_datetime_in_rating_window,
@@ -61,8 +62,10 @@ BTN_LEGIONARY = "Создать сообщение для легчата"
 BTN_YES = "Да"
 BTN_NO = "Нет"
 BTN_BACK = "Назад"
+BTN_ADD_OTHER_GAME = "Добавить другой турнир..."
 
 STATE_NONE = "none"
+STATE_ADD_GAME_SELECT = "add_game_select"
 STATE_ADD_GAME_ID = "add_game_id"
 STATE_ADD_GAME_CONFIRM = "add_game_confirm"
 STATE_ADD_GAME_PLACE = "add_game_place"
@@ -173,6 +176,14 @@ class KvrmBot:
             resize_keyboard=True,
         )
 
+    def add_game_select_keyboard(self, labels: list[str]):
+        buttons = [[label] for label in labels]
+        buttons.append([BTN_ADD_OTHER_GAME])
+        return ReplyKeyboardMarkup(
+            buttons,
+            resize_keyboard=True,
+        )
+
     # =================================================================
     # START
     # =================================================================
@@ -231,6 +242,10 @@ class KvrmBot:
         # -------------------------------------------------------------
         # Состояния
         # -------------------------------------------------------------
+
+        if state == STATE_ADD_GAME_SELECT:
+            await self.handle_add_game_select(update, context)
+            return
 
         if state == STATE_ADD_GAME_ID:
             await self.handle_add_game_id(update, context)
@@ -509,18 +524,125 @@ class KvrmBot:
     # ДОБАВЛЕНИЕ ИГРЫ
     # =================================================================
 
+    def _tournament_button_label(self, tournament: dict, used: set[str]) -> str:
+        name = tournament.get("name") or str(tournament.get("id") or "")
+        label = name[:64]
+        if label in used:
+            suffix = f" [{tournament.get('id')}]"
+            label = (name[: max(0, 64 - len(suffix))] + suffix)[:64]
+        return label or str(tournament.get("id"))
+
     async def start_add_game(
         self,
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
         is_festival: bool
     ):
-        context.user_data["state"] = STATE_ADD_GAME_ID
         context.user_data["is_festival"] = is_festival
 
+        if is_festival:
+            context.user_data["state"] = STATE_ADD_GAME_ID
+            await update.message.reply_text("Введите id:")
+            return
+
+        await self.show_add_game_menu(update, context)
+
+    async def ask_add_game_id(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        reply_markup=None,
+    ):
+        context.user_data["state"] = STATE_ADD_GAME_ID
+        kwargs = {}
+        if reply_markup is not None:
+            kwargs["reply_markup"] = reply_markup
+        await update.message.reply_text("Введите id:", **kwargs)
+
+    async def show_add_game_menu(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ):
+        today = datetime.now(MSK_TZ).date()
+        date_end_to = today + timedelta(weeks=2)
+
+        try:
+            tournaments = await self.rating_api.list_synchrons(
+                date_end_from=today,
+                date_end_to=date_end_to,
+            )
+        except Exception as exc:
+            logger.exception(exc)
+            await update.message.reply_text(
+                "Не удалось получить список турниров."
+            )
+            await self.ask_add_game_id(update, context)
+            return
+
+        existing_ids = self.db.get_all_game_base_ids()
+        available = [
+            tournament
+            for tournament in tournaments
+            if tournament.get("id") is not None
+            and tournament["id"] not in existing_ids
+        ][:9]
+
+        used_labels: set[str] = set()
+        labels = []
+        choices = {}
+        for tournament in available:
+            label = self._tournament_button_label(tournament, used_labels)
+            used_labels.add(label)
+            labels.append(label)
+            choices[label] = tournament["id"]
+
+        context.user_data["add_game_choices"] = choices
+        context.user_data["state"] = STATE_ADD_GAME_SELECT
+
+        if labels:
+            prompt = "Выберите турнир:"
+        else:
+            prompt = (
+                "Ближайших синхронов, которых ещё нет в списке, нет.\n"
+                "Можно добавить турнир по ID."
+            )
+
         await update.message.reply_text(
-            "Введите id:"
+            prompt,
+            reply_markup=self.add_game_select_keyboard(labels),
         )
+
+    async def handle_add_game_select(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ):
+        text = update.message.text
+
+        if text == BTN_ADD_OTHER_GAME:
+            await self.ask_add_game_id(
+                update,
+                context,
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return
+
+        if text == BTN_BACK:
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        choices = context.user_data.get("add_game_choices") or {}
+        game_id = choices.get(text)
+
+        if game_id is None:
+            await update.message.reply_text(
+                "Выберите турнир с клавиатуры.",
+                reply_markup=self.add_game_select_keyboard(list(choices)),
+            )
+            return
+
+        await self.confirm_add_game_by_id(update, context, game_id)
 
     async def handle_add_game_id(
         self,
@@ -535,6 +657,14 @@ class KvrmBot:
             )
             return
 
+        await self.confirm_add_game_by_id(update, context, game_id)
+
+    async def confirm_add_game_by_id(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        game_id: int,
+    ):
         try:
             rating_data = await self.rating_api.get_tournament(game_id)
         except Exception as exc:
