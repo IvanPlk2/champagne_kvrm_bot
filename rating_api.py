@@ -5,7 +5,6 @@ import httpx
 from utils import parse_rating_datetime
 
 # В текущем API рейтинга: 3 — «Синхрон».
-# В старой нумерации синхрон был типом 2.
 TOURNAMENT_TYPE_SYNCHRON = 3
 
 
