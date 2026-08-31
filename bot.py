@@ -727,7 +727,7 @@ class KvrmBot:
             return
 
         today = datetime.now(MSK_TZ).date()
-        date_end_to = add_months(today, 2)
+        date_end_to = add_months(today, 1)
 
         try:
             tournaments = await self.rating_api.list_synchrons(
@@ -736,6 +736,13 @@ class KvrmBot:
                 name=text,
                 items_per_page=100,
             )
+            if not tournaments:
+                tournaments = await self.rating_api.match_by_long_name(
+                    today,
+                    date_end_to,
+                    text,
+                    logger
+                )
         except Exception as exc:
             logger.exception(exc)
             await update.message.reply_text(

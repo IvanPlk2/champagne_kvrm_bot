@@ -26,6 +26,7 @@ class RatingAPI:
         return {
             "id": data.get("id"),
             "name": data.get("name"),
+            "long_name": data.get("longName"),
             "is_festival": (data.get("type") or {}).get('id') in {2, 6, "2", "6"},
             "difficulty_level": data.get("difficultyForecast"),
             "date_start": parse_rating_datetime(data.get("dateStart")),
@@ -53,6 +54,7 @@ class RatingAPI:
             "dateEnd[after]": date_end_from.isoformat(),
             "dateEnd[before]": date_end_to.isoformat(),
             "itemsPerPage": items_per_page,
+            "order[lastEditDate]": "ASC"
         }
         if name:
             params["name"] = name
@@ -88,6 +90,26 @@ class RatingAPI:
             )
         )
         return tournaments
+
+    async def match_by_long_name(self, date_end_from: date, date_end_to: date, query: str, logger) -> list[dict]:
+
+        candidates = await self.list_synchrons(
+            date_end_from=date_end_from,
+            date_end_to=date_end_to,
+            items_per_page=100,
+        )
+        needle = (query or "").casefold()
+        logger.info(needle)
+        if not needle:
+            return []
+
+        matched = []
+        for item in candidates:
+            logger.info(str(item))
+            haystack = (item.get("long_name") or "").casefold()
+            if needle in haystack:
+                matched.append(item)
+        return matched
 
     async def get_player(self, player_id: int):
         response = await self.client.get(
