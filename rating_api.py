@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Optional
 
 import httpx
 
@@ -44,16 +45,21 @@ class RatingAPI:
         date_end_to: date,
         language: str = "ru",
         items_per_page: int = 50,
+        name: Optional[str] = None,
     ):
+        params = {
+            "type": TOURNAMENT_TYPE_SYNCHRON,
+            "language": language,
+            "dateEnd[after]": date_end_from.isoformat(),
+            "dateEnd[before]": date_end_to.isoformat(),
+            "itemsPerPage": items_per_page,
+        }
+        if name:
+            params["name"] = name
+
         response = await self.client.get(
             "/tournaments.json",
-            params={
-                "type": TOURNAMENT_TYPE_SYNCHRON,
-                "language": language,
-                "dateEnd[after]": date_end_from.isoformat(),
-                "dateEnd[before]": date_end_to.isoformat(),
-                "itemsPerPage": items_per_page,
-            },
+            params=params,
         )
         response.raise_for_status()
         data = response.json()
@@ -65,6 +71,13 @@ class RatingAPI:
             for item in data
             if isinstance(item, dict)
         ]
+        if name:
+            needle = name.casefold()
+            tournaments = [
+                item
+                for item in tournaments
+                if needle in (item.get("name") or "").casefold()
+            ]
         tournaments.sort(
             key=lambda item: (
                 item.get("date_start") is None,

@@ -24,6 +24,7 @@ from sqlite_db import SqliteDB
 from rating_api import RatingAPI
 from utils import (
     MSK_TZ,
+    add_months,
     format_msk_window,
     get_when_text,
     is_datetime_in_rating_window,
@@ -62,10 +63,12 @@ BTN_LEGIONARY = "Создать сообщение для легчата"
 BTN_YES = "Да"
 BTN_NO = "Нет"
 BTN_BACK = "Назад"
-BTN_ADD_OTHER_GAME = "Добавить другой турнир..."
+BTN_FIND_OTHER_GAME = "Найти другой турнир"
+BTN_ADD_GAME_BY_ID = "Ввести турнир через ID"
 
 STATE_NONE = "none"
 STATE_ADD_GAME_SELECT = "add_game_select"
+STATE_ADD_GAME_SEARCH_NAME = "add_game_search_name"
 STATE_ADD_GAME_ID = "add_game_id"
 STATE_ADD_GAME_CONFIRM = "add_game_confirm"
 STATE_ADD_GAME_PLACE = "add_game_place"
@@ -176,9 +179,9 @@ class KvrmBot:
             resize_keyboard=True,
         )
 
-    def add_game_select_keyboard(self, labels: list[str]):
+    def add_game_select_keyboard(self, labels: list[str], extra_button: str):
         buttons = [[label] for label in labels]
-        buttons.append([BTN_ADD_OTHER_GAME])
+        buttons.append([extra_button])
         return ReplyKeyboardMarkup(
             buttons,
             resize_keyboard=True,
@@ -245,6 +248,10 @@ class KvrmBot:
 
         if state == STATE_ADD_GAME_SELECT:
             await self.handle_add_game_select(update, context)
+            return
+
+        if state == STATE_ADD_GAME_SEARCH_NAME:
+            await self.handle_add_game_search_name(update, context)
             return
 
         if state == STATE_ADD_GAME_ID:
@@ -532,6 +539,53 @@ class KvrmBot:
             label = (name[: max(0, 64 - len(suffix))] + suffix)[:64]
         return label or str(tournament.get("id"))
 
+    def _build_add_game_choices(
+        self,
+        tournaments: list[dict],
+        *,
+        exclude_existing: bool,
+    ) -> tuple[list[str], dict]:
+        available = [
+            tournament
+            for tournament in tournaments
+            if tournament.get("id") is not None
+        ]
+        if exclude_existing:
+            existing_ids = self.db.get_all_game_base_ids()
+            available = [
+                tournament
+                for tournament in available
+                if tournament["id"] not in existing_ids
+            ]
+        available = available[:9]
+
+        used_labels: set[str] = set()
+        labels = []
+        choices = {}
+        for tournament in available:
+            label = self._tournament_button_label(tournament, used_labels)
+            used_labels.add(label)
+            labels.append(label)
+            choices[label] = tournament["id"]
+        return labels, choices
+
+    async def _show_add_game_choices(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        labels: list[str],
+        choices: dict,
+        prompt: str,
+        extra_button: str,
+    ):
+        context.user_data["add_game_choices"] = choices
+        context.user_data["add_game_extra_button"] = extra_button
+        context.user_data["state"] = STATE_ADD_GAME_SELECT
+        await update.message.reply_text(
+            prompt,
+            reply_markup=self.add_game_select_keyboard(labels, extra_button),
+        )
+
     async def start_add_game(
         self,
         update: Update,
@@ -580,37 +634,37 @@ class KvrmBot:
             await self.ask_add_game_id(update, context)
             return
 
-        existing_ids = self.db.get_all_game_base_ids()
-        available = [
-            tournament
-            for tournament in tournaments
-            if tournament.get("id") is not None
-            and tournament["id"] not in existing_ids
-        ][:9]
-
-        used_labels: set[str] = set()
-        labels = []
-        choices = {}
-        for tournament in available:
-            label = self._tournament_button_label(tournament, used_labels)
-            used_labels.add(label)
-            labels.append(label)
-            choices[label] = tournament["id"]
-
-        context.user_data["add_game_choices"] = choices
-        context.user_data["state"] = STATE_ADD_GAME_SELECT
+        labels, choices = self._build_add_game_choices(
+            tournaments,
+            exclude_existing=True,
+        )
 
         if labels:
             prompt = "Выберите турнир:"
         else:
             prompt = (
                 "Ближайших синхронов, которых ещё нет в списке, нет.\n"
-                "Можно добавить турнир по ID."
+                "Можно найти другой турнир."
             )
 
-        await update.message.reply_text(
+        await self._show_add_game_choices(
+            update,
+            context,
+            labels,
+            choices,
             prompt,
-            reply_markup=self.add_game_select_keyboard(labels),
+            BTN_FIND_OTHER_GAME,
+        )
+
+    async def ask_add_game_search_name(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+        context.user_data["state"] = STATE_ADD_GAME_SEARCH_NAME
+        await update.message.reply_text(
+            "Введите часть названия турнира:",
+            reply_markup=ReplyKeyboardRemove(),
         )
 
     async def handle_add_game_select(
@@ -619,8 +673,16 @@ class KvrmBot:
         context: ContextTypes.DEFAULT_TYPE
     ):
         text = update.message.text
+        extra_button = context.user_data.get(
+            "add_game_extra_button",
+            BTN_FIND_OTHER_GAME,
+        )
 
-        if text == BTN_ADD_OTHER_GAME:
+        if text == BTN_FIND_OTHER_GAME:
+            await self.ask_add_game_search_name(update, context)
+            return
+
+        if text == BTN_ADD_GAME_BY_ID:
             await self.ask_add_game_id(
                 update,
                 context,
@@ -638,11 +700,79 @@ class KvrmBot:
         if game_id is None:
             await update.message.reply_text(
                 "Выберите турнир с клавиатуры.",
-                reply_markup=self.add_game_select_keyboard(list(choices)),
+                reply_markup=self.add_game_select_keyboard(
+                    list(choices),
+                    extra_button,
+                ),
             )
             return
 
         await self.confirm_add_game_by_id(update, context, game_id)
+
+    async def handle_add_game_search_name(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ):
+        text = update.message.text.strip()
+
+        if text == BTN_BACK:
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        if not text:
+            await update.message.reply_text(
+                "Введите название турнира:"
+            )
+            return
+
+        today = datetime.now(MSK_TZ).date()
+        date_end_to = add_months(today, 2)
+
+        try:
+            tournaments = await self.rating_api.list_synchrons(
+                date_end_from=today,
+                date_end_to=date_end_to,
+                name=text,
+                items_per_page=100,
+            )
+        except Exception as exc:
+            logger.exception(exc)
+            await update.message.reply_text(
+                "Не удалось найти турниры."
+            )
+            await self._show_add_game_choices(
+                update,
+                context,
+                [],
+                {},
+                "Можно ввести турнир через ID сайта рейтинга.",
+                BTN_ADD_GAME_BY_ID,
+            )
+            return
+
+        labels, choices = self._build_add_game_choices(
+            tournaments,
+            exclude_existing=True,
+        )
+
+        if not labels:
+            await update.message.reply_text("Турниров не найдено.")
+            await self.ask_add_game_id(
+                update,
+                context,
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return
+
+        await self._show_add_game_choices(
+            update,
+            context,
+            labels,
+            choices,
+            "Выберите турнир:",
+            BTN_ADD_GAME_BY_ID,
+        )
 
     async def handle_add_game_id(
         self,

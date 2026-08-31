@@ -1,9 +1,18 @@
-from datetime import datetime, timedelta, timezone
+import calendar
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 
 UTC_TZ = timezone.utc
 MSK_TZ = timezone(timedelta(hours=3))
+
+
+def add_months(value: date, months: int) -> date:
+    month = value.month - 1 + months
+    year = value.year + month // 12
+    month = month % 12 + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
 
 
 def parse_rating_datetime(value) -> Optional[datetime]:
