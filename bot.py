@@ -87,6 +87,27 @@ ADD_PLAYER_CALLBACK = 'add_player'
 SHOW_POLL_CALLBACK = 'show_poll'
 LEGIONARY_CALLBACK = 'legionary'
 
+ADMIN_CALLBACKS = {
+    PLACE_CALLBACK,
+    POLL_CALLBACK,
+    ADD_PLAYER_CALLBACK,
+    SHOW_POLL_CALLBACK,
+    LEGIONARY_CALLBACK,
+}
+
+ADMIN_STATES = {
+    STATE_ADD_GAME_SELECT,
+    STATE_ADD_GAME_SEARCH_NAME,
+    STATE_ADD_GAME_ID,
+    STATE_ADD_GAME_CONFIRM,
+    STATE_ADD_GAME_PLACE,
+    STATE_ADD_GAME_DATE_START,
+    STATE_ADD_GAME_DATE_END,
+    STATE_UPDATE_PLACE,
+    STATE_ADD_PLAYER_RATING_ID,
+    STATE_ADD_PLAYER_CONFIRM,
+}
+
 TEAM_NAME = "Советское Шампанское"
 TEAM_LINK = "https://rating.pecheny.me/teams/85915"
 
@@ -111,6 +132,7 @@ class KvrmBot:
         self.application = (
             Application.builder()
             .token(self.api_key)
+            .post_shutdown(self._post_shutdown)
             .build()
         )
 
@@ -241,6 +263,16 @@ class KvrmBot:
         )
 
         logger.info(f'{tg_id}: {state} | {text}')
+
+        if state in ADMIN_STATES and not self.db.is_admin(tg_id):
+            logger.warning(
+                "Пользователь %s попытался использовать админ-состояние %s",
+                tg_id,
+                state,
+            )
+            await update.message.reply_text("Недостаточно прав.")
+            await self.reset_keyboard_and_state(update, context)
+            return
 
         # -------------------------------------------------------------
         # Состояния
@@ -463,12 +495,26 @@ class KvrmBot:
         context: ContextTypes.DEFAULT_TYPE
     ):
         query = update.callback_query
+        data = query.data or ""
+        parts = data.split(":")
+
+        if len(parts) < 2:
+            await query.answer()
+            return
+
+        callback_cmd, text = parts[0], parts[1]
+        tg_id = update.effective_user.id
+
+        if callback_cmd in ADMIN_CALLBACKS and not self.db.is_admin(tg_id):
+            logger.warning(
+                "Пользователь %s вызвал админ-callback %s",
+                tg_id,
+                callback_cmd,
+            )
+            await query.answer("Недостаточно прав.", show_alert=True)
+            return
 
         await query.answer()
-
-        data = query.data
-
-        callback_cmd, text = data.split(':')[:2]
 
         if callback_cmd == PLAYERS_CALLBACK:
             game_id = int(text)
@@ -1651,17 +1697,13 @@ class KvrmBot:
     # RUN
     # =================================================================
 
+    async def _post_shutdown(self, application: Application) -> None:
+        await self.rating_api.close()
+        self.db.close()
+
     def run(self):
         logger.info("Бот запускается...")
-
-        try:
-            self.application.run_polling()
-        finally:
-            self.db.close()
-            self.shutdown()
-
-    async def shutdown(self):
-        await self.rating_api.close()
+        self.application.run_polling()
 
 if __name__ == "__main__":
     bot = KvrmBot()
