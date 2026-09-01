@@ -53,7 +53,7 @@ BTN_PLAYING_WITH = "Посмотреть с кем играю"
 
 BTN_ADD_GAME = "Добавить игру"
 BTN_ADD_FESTIVAL = "Добавить фестиваль"
-BTN_UPDATE_PLACE = "Обновить место"
+BTN_EDIT_GAME = "Редактировать игру"
 BTN_CREATE_POLL = "Создать опрос"
 BTN_SHOW_POLL = "Показать опрос"
 BTN_LINK_PLAYER = "Привязать к рейтингу"
@@ -76,6 +76,8 @@ STATE_ADD_GAME_DATE_START = "add_game_date_start"
 STATE_ADD_GAME_DATE_END = "add_game_date_end"
 
 STATE_UPDATE_PLACE = "update_place"
+STATE_EDIT_DATE = "edit_date"
+STATE_EDIT_DELETE_CONFIRM = "edit_delete_confirm"
 
 STATE_ADD_PLAYER_RATING_ID = "add_player_rating_id"
 STATE_ADD_PLAYER_CONFIRM = "add_player_confirm"
@@ -86,6 +88,10 @@ POLL_CALLBACK = 'poll'
 ADD_PLAYER_CALLBACK = 'add_player'
 SHOW_POLL_CALLBACK = 'show_poll'
 LEGIONARY_CALLBACK = 'legionary'
+EDIT_GAME_CALLBACK = 'edit'
+EDIT_PLACE_CALLBACK = 'edit_place'
+EDIT_DATE_CALLBACK = 'edit_date'
+EDIT_DELETE_CALLBACK = 'edit_delete'
 
 ADMIN_CALLBACKS = {
     PLACE_CALLBACK,
@@ -93,6 +99,10 @@ ADMIN_CALLBACKS = {
     ADD_PLAYER_CALLBACK,
     SHOW_POLL_CALLBACK,
     LEGIONARY_CALLBACK,
+    EDIT_GAME_CALLBACK,
+    EDIT_PLACE_CALLBACK,
+    EDIT_DATE_CALLBACK,
+    EDIT_DELETE_CALLBACK,
 }
 
 ADMIN_STATES = {
@@ -104,6 +114,8 @@ ADMIN_STATES = {
     STATE_ADD_GAME_DATE_START,
     STATE_ADD_GAME_DATE_END,
     STATE_UPDATE_PLACE,
+    STATE_EDIT_DATE,
+    STATE_EDIT_DELETE_CONFIRM,
     STATE_ADD_PLAYER_RATING_ID,
     STATE_ADD_PLAYER_CONFIRM,
 }
@@ -180,7 +192,7 @@ class KvrmBot:
             buttons.extend([
                 [BTN_ADD_GAME],
                 [BTN_ADD_FESTIVAL],
-                [BTN_UPDATE_PLACE],
+                [BTN_EDIT_GAME],
                 [BTN_CREATE_POLL],
                 [BTN_SHOW_POLL],
                 [BTN_LINK_PLAYER],
@@ -197,6 +209,14 @@ class KvrmBot:
         return ReplyKeyboardMarkup(
             [
                 [BTN_YES, BTN_NO],
+            ],
+            resize_keyboard=True,
+        )
+
+    def back_keyboard(self):
+        return ReplyKeyboardMarkup(
+            [
+                [BTN_BACK],
             ],
             resize_keyboard=True,
         )
@@ -310,6 +330,14 @@ class KvrmBot:
             await self.handle_update_place(update, context)
             return
 
+        if state == STATE_EDIT_DATE:
+            await self.handle_edit_date(update, context)
+            return
+
+        if state == STATE_EDIT_DELETE_CONFIRM:
+            await self.handle_edit_delete_confirm(update, context)
+            return
+
         if state == STATE_ADD_PLAYER_RATING_ID:
             await self.handle_add_player_rating_id(update, context)
             return
@@ -340,8 +368,8 @@ class KvrmBot:
             await self.start_add_game(update, context, True)
             return
 
-        if is_admin and text == BTN_UPDATE_PLACE:
-            await self.show_games_for_place_update(update, context)
+        if is_admin and text == BTN_EDIT_GAME:
+            await self.show_games_for_edit(update)
             return
 
         if is_admin and text == BTN_CREATE_POLL:
@@ -528,11 +556,27 @@ class KvrmBot:
         if callback_cmd == PLACE_CALLBACK:
             game_id = int(text)
 
-            context.user_data["state"] = STATE_UPDATE_PLACE
-            context.user_data["game_id"] = game_id
-            await query.message.reply_text(
-                "Новое место:"
-            )
+            await self.start_edit_place(query, context, game_id)
+            return
+
+        if callback_cmd == EDIT_GAME_CALLBACK:
+            game_id = int(text)
+            await self.show_edit_game_menu(query, game_id)
+            return
+
+        if callback_cmd == EDIT_PLACE_CALLBACK:
+            game_id = int(text)
+            await self.start_edit_place(query, context, game_id)
+            return
+
+        if callback_cmd == EDIT_DATE_CALLBACK:
+            game_id = int(text)
+            await self.start_edit_date(query, context, game_id)
+            return
+
+        if callback_cmd == EDIT_DELETE_CALLBACK:
+            game_id = int(text)
+            await self.start_edit_delete(query, context, game_id)
             return
 
         if callback_cmd == POLL_CALLBACK:
@@ -1113,14 +1157,84 @@ class KvrmBot:
         await self.reset_keyboard_and_state(update, context)
 
     # =================================================================
-    # ОБНОВЛЕНИЕ МЕСТА
+    # РЕДАКТИРОВАНИЕ ИГРЫ
     # =================================================================
 
-    async def show_games_for_place_update(
+    def _game_summary(self, game: dict) -> str:
+        when_text = get_when_text(
+            game["date_start"],
+            game["date_end"],
+            game["is_festival"],
+        )
+        kind = "фестиваль" if game["is_festival"] else "игра"
+        return "\n".join([
+            game["name"] or str(game["base_id"]),
+            f"Тип: {kind}",
+            f"Место: {game['place'] or 'не указано'}",
+            f"Когда: {when_text or 'не указано'}",
+        ])
+
+    async def _fetch_rating_window(self, base_id: int):
+        try:
+            rating_data = await self.rating_api.get_tournament(base_id)
+        except Exception:
+            logger.exception(
+                "Не удалось получить турнир %s с сайта рейтинга",
+                base_id,
+            )
+            return None
+        return rating_data.get("date_start"), rating_data.get("date_end")
+
+    async def notify_ready_players(
         self,
-        update: Update,
-        context: ContextTypes.DEFAULT_TYPE
+        context: ContextTypes.DEFAULT_TYPE,
+        game_id: int,
+        text: str,
+        players=None,
     ):
+        if players is None:
+            players = self.db.get_ready_players_for_game(game_id)
+        for player in players:
+            tg_username = player[5]
+            tg_id = player[6]
+            notif = player[7]
+            if not notif:
+                continue
+            try:
+                await context.bot.send_message(
+                    chat_id=tg_id,
+                    text=text,
+                )
+            except Exception:
+                logger.exception(
+                    "Не удалось отправить уведомление игроку %s.",
+                    tg_username,
+                )
+
+    async def _delete_game_poll_message(self, bot, game: dict) -> None:
+        message_id = game.get("poll")
+        if message_id is None:
+            return
+        for chat_id in (TEAM_CHAT_ID, ANOTHER_CHAT_ID):
+            try:
+                await bot.delete_message(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                )
+                return
+            except Exception:
+                logger.debug(
+                    "Не удалось удалить опрос игры %s из чата %s",
+                    game.get("base_id"),
+                    chat_id,
+                    exc_info=True,
+                )
+        logger.warning(
+            "Не удалось удалить опрос для игры %s",
+            game.get("base_id"),
+        )
+
+    async def show_games_for_edit(self, update: Update):
         games = self.db.get_future_games(10, None)
 
         if not games:
@@ -1137,7 +1251,7 @@ class KvrmBot:
             keyboard.append([
                 InlineKeyboardButton(
                     text=name or str(game_id),
-                    callback_data=f"{PLACE_CALLBACK}:{game_id}",
+                    callback_data=f"{EDIT_GAME_CALLBACK}:{game_id}",
                 )
             ])
 
@@ -1146,11 +1260,62 @@ class KvrmBot:
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
 
+    async def show_edit_game_menu(self, query, game_id: int):
+        game = self.db.get_game(game_id)
+
+        if game is None:
+            await query.message.reply_text("Игра не найдена.")
+            return
+
+        date_label = "Обновить дату" if game["is_festival"] else "Изменить дату"
+        keyboard = [
+            [InlineKeyboardButton(
+                "Изменить место",
+                callback_data=f"{EDIT_PLACE_CALLBACK}:{game_id}",
+            )],
+            [InlineKeyboardButton(
+                date_label,
+                callback_data=f"{EDIT_DATE_CALLBACK}:{game_id}",
+            )],
+            [InlineKeyboardButton(
+                "Удалить",
+                callback_data=f"{EDIT_DELETE_CALLBACK}:{game_id}",
+            )],
+        ]
+
+        await query.message.reply_text(
+            self._game_summary(game),
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+    async def start_edit_place(self, query, context, game_id: int):
+        game = self.db.get_game(game_id)
+
+        if game is None:
+            await query.message.reply_text("Игра не найдена.")
+            return
+
+        context.user_data["state"] = STATE_UPDATE_PLACE
+        context.user_data["game_id"] = game_id
+
+        prompt = "Введите новое место:"
+        if game.get("place"):
+            prompt += f"\nСейчас: {game['place']}"
+
+        await query.message.reply_text(
+            prompt,
+            reply_markup=self.back_keyboard(),
+        )
+
     async def handle_update_place(
         self,
         update: Update,
         context: ContextTypes.DEFAULT_TYPE
     ):
+        if update.message.text == BTN_BACK:
+            await self.reset_keyboard_and_state(update, context)
+            return
+
         game_id = context.user_data.get("game_id")
 
         if game_id is None:
@@ -1168,7 +1333,22 @@ class KvrmBot:
                 "Место обновлено."
             )
 
-            await self.notify_update_place(update, context, game_id, new_place)
+            logger.info(
+                "%s изменил место игры %s",
+                update.effective_user.id,
+                game_id,
+            )
+
+            game = self.db.get_game(game_id)
+            if game:
+                await self.notify_ready_players(
+                    context,
+                    game_id,
+                    (
+                        f"Место проведения игры «{game['name']}» изменено.\n"
+                        f"Новое место: {new_place}"
+                    ),
+                )
 
         else:
             await update.message.reply_text(
@@ -1177,41 +1357,391 @@ class KvrmBot:
 
         await self.reset_keyboard_and_state(update, context)
 
-    async def notify_update_place(
+    def _calendar_date(self, value):
+        if value is None:
+            return None
+        return value.date()
+
+    def _festival_dates_equal(self, old_start, old_end, new_start, new_end) -> bool:
+        old_end = old_end or old_start
+        new_end = new_end or new_start
+        return (
+            self._calendar_date(old_start) == self._calendar_date(new_start)
+            and self._calendar_date(old_end) == self._calendar_date(new_end)
+        )
+
+    def _telegram_message_link(self, chat_id, message_id) -> Optional[str]:
+        if chat_id is None or message_id is None:
+            return None
+        try:
+            chat_id = int(chat_id)
+        except (TypeError, ValueError):
+            return None
+        chat_text = str(chat_id)
+        if chat_text.startswith("-100"):
+            return f"https://t.me/c/{chat_text[4:]}/{message_id}"
+        return None
+
+    async def _poll_message_link_for_chat(self, bot, chat_id, message_id) -> Optional[str]:
+        link = self._telegram_message_link(chat_id, message_id)
+        if link:
+            return link
+        try:
+            chat = await bot.get_chat(chat_id)
+        except Exception:
+            return None
+        if getattr(chat, "username", None):
+            return f"https://t.me/{chat.username}/{message_id}"
+        return self._telegram_message_link(chat.id, message_id)
+
+    async def start_edit_date(self, query, context, game_id: int):
+        game = self.db.get_game(game_id)
+
+        if game is None:
+            await query.message.reply_text("Игра не найдена.")
+            return
+
+        if game["is_festival"]:
+            await self.refresh_festival_dates(query, context, game)
+            return
+
+        window = await self._fetch_rating_window(game_id)
+        if window is None:
+            await query.message.reply_text(
+                "Не удалось получить сроки с сайта рейтинга. Дата не изменена."
+            )
+            return
+
+        context.user_data["game_id"] = game_id
+        context.user_data["is_festival"] = False
+        context.user_data["rating_date_start"] = window[0]
+        context.user_data["rating_date_end"] = window[1]
+        context.user_data["state"] = STATE_EDIT_DATE
+
+        prompt = "Введите дату в формате ДД.ММ.ГГ ЧЧ:ММ"
+
+        current = get_when_text(
+            game["date_start"],
+            game["date_end"],
+            False,
+        )
+        if current:
+            prompt += f"\nСейчас: {current}"
+
+        window_txt = format_msk_window(window[0], window[1])
+        if window_txt:
+            prompt += f"\nСрок проведения (GMT+3): {window_txt}"
+
+        await query.message.reply_text(
+            prompt,
+            reply_markup=self.back_keyboard(),
+        )
+
+    async def refresh_festival_dates(self, query, context, game: dict):
+        game_id = game["base_id"]
+        try:
+            rating_data = await self.rating_api.get_tournament(game_id)
+        except Exception:
+            logger.exception(
+                "Не удалось получить турнир %s с сайта рейтинга",
+                game_id,
+            )
+            await query.message.reply_text(
+                "Не удалось получить даты с сайта рейтинга."
+            )
+            return
+
+        date_start = to_msk_naive(rating_data.get("date_start"))
+        date_end = to_msk_naive(rating_data.get("date_end"))
+
+        if date_start is None:
+            await query.message.reply_text(
+                "На сайте рейтинга нет дат проведения. Дата не изменена."
+            )
+            return
+
+        if date_end is None:
+            date_end = date_start
+
+        old_when = get_when_text(game["date_start"], game["date_end"], True)
+        new_when = get_when_text(date_start, date_end, True)
+
+        if self._festival_dates_equal(
+            game["date_start"],
+            game["date_end"],
+            date_start,
+            date_end,
+        ):
+            await query.message.reply_text(
+                f"Даты не изменились: {new_when or 'не указаны'}."
+            )
+            return
+
+        if not self.db.add_dates_for_game(game_id, date_start, date_end):
+            await query.message.reply_text("Не удалось обновить дату.")
+            return
+
+        await query.message.reply_text(
+            f"Дата обновлена: {new_when}."
+        )
+        logger.info(
+            "%s обновил даты фестиваля %s",
+            query.from_user.id if query.from_user else "?",
+            game_id,
+        )
+
+        await self.notify_team_festival_dates_changed(
+            context,
+            game,
+            old_when,
+            new_when,
+        )
+        self.db.clear_game_poll(game_id)
+
+    async def notify_team_festival_dates_changed(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        game: dict,
+        old_when: str,
+        new_when: str,
+    ):
+        name = game.get("name") or str(game.get("base_id"))
+        lines = [
+            f"Даты фестиваля «{name}» изменились.",
+            f"Было: {old_when or 'не указано'}",
+            f"Стало: {new_when or 'не указано'}",
+        ]
+
+        poll_id = game.get("poll")
+        chat_ids = (TEAM_CHAT_ID, ANOTHER_CHAT_ID)
+
+        if poll_id is not None:
+            for chat_id in chat_ids:
+                poll_link = await self._poll_message_link_for_chat(
+                    context.bot,
+                    chat_id,
+                    poll_id,
+                )
+                text_lines = list(lines)
+                if poll_link:
+                    text_lines.append(
+                        f"Старый опрос больше не актуален: {poll_link}"
+                    )
+                else:
+                    text_lines.append("Старый опрос больше не актуален.")
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text="\n".join(text_lines),
+                        reply_to_message_id=poll_id,
+                        disable_web_page_preview=True,
+                    )
+                    return
+                except Exception:
+                    logger.debug(
+                        "Не удалось ответить на опрос в чате %s об изменении дат фестиваля %s",
+                        chat_id,
+                        game.get("base_id"),
+                        exc_info=True,
+                    )
+
+            fallback_link = None
+            for chat_id in chat_ids:
+                fallback_link = await self._poll_message_link_for_chat(
+                    context.bot,
+                    chat_id,
+                    poll_id,
+                )
+                if fallback_link:
+                    break
+            if fallback_link:
+                lines.append(
+                    f"Старый опрос больше не актуален: {fallback_link}"
+                )
+            else:
+                lines.append("Старый опрос больше не актуален.")
+
+        text = "\n".join(lines)
+        for chat_id in chat_ids:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    disable_web_page_preview=True,
+                )
+                return
+            except Exception:
+                logger.debug(
+                    "Не удалось оповестить чат %s об изменении дат фестиваля %s",
+                    chat_id,
+                    game.get("base_id"),
+                    exc_info=True,
+                )
+
+        logger.warning(
+            "Не удалось оповестить команду об изменении дат фестиваля %s",
+            game.get("base_id"),
+        )
+
+    def _rating_window_error(self, context) -> str:
+        window = format_msk_window(
+            context.user_data.get("rating_date_start"),
+            context.user_data.get("rating_date_end"),
+        ) or "не указан"
+        return (
+            "Введённая дата не входит в сроки проведения турнира "
+            f"({window}, GMT+3).\n"
+            "Исправьте дату."
+        )
+
+    async def handle_edit_date(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ):
+        if update.message.text == BTN_BACK:
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        game_id = context.user_data.get("game_id")
+        if game_id is None:
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        try:
+            game_when = datetime.strptime(
+                update.message.text.strip(),
+                "%d.%m.%y %H:%M",
+            )
+        except ValueError:
+            await update.message.reply_text(
+                "Неверный формат даты.\n"
+                "Используйте ДД.ММ.ГГ ЧЧ:ММ"
+            )
+            return
+
+        if not is_datetime_in_rating_window(
+            game_when,
+            context.user_data.get("rating_date_start"),
+            context.user_data.get("rating_date_end"),
+        ):
+            await update.message.reply_text(self._rating_window_error(context))
+            return
+
+        await self._save_edited_dates(update, context, game_id, game_when, None)
+
+    async def _save_edited_dates(
         self,
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
         game_id: int,
-        new_place: str
+        date_start,
+        date_end,
     ):
+        success = self.db.add_dates_for_game(
+            game_id,
+            date_start,
+            date_end,
+        )
 
-        players = self.db.get_ready_players_for_game(game_id)
+        if not success:
+            await update.message.reply_text("Не удалось обновить дату.")
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        game = self.db.get_game(game_id)
+        when_text = ""
+        if game:
+            when_text = get_when_text(
+                game["date_start"],
+                game["date_end"],
+                game["is_festival"],
+            )
+
+        await update.message.reply_text("Дата обновлена.")
+        logger.info(
+            "%s изменил дату игры %s",
+            update.effective_user.id,
+            game_id,
+        )
+
+        if game and when_text:
+            await self.notify_ready_players(
+                context,
+                game_id,
+                (
+                    f"Дата проведения игры «{game['name']}» изменена.\n"
+                    f"Новая дата: {when_text}"
+                ),
+            )
+
+        await self.reset_keyboard_and_state(update, context)
+
+    async def start_edit_delete(self, query, context, game_id: int):
         game = self.db.get_game(game_id)
 
-        logger.info(
-                    "%s изменил место игры",
-                    update.effective_user.id
-                )
+        if game is None:
+            await query.message.reply_text("Игра не найдена.")
+            return
 
-        for player in players:
-            tg_username = player[5]
-            tg_id = player[6]
-            notif = player[7]
-            if not notif:
-                continue
-            try:
-                await context.bot.send_message(
-                    chat_id=tg_id,
-                    text=(
-                        f"Место проведения игры «{game['name']}» изменено.\n"
-                        f"Новое место: {new_place}"
-                    ),
-                )
-            except Exception:
-                logger.exception(
-                    "Не удалось отправить уведомление игроку %s.",
-                    tg_username
-                )
+        context.user_data["state"] = STATE_EDIT_DELETE_CONFIRM
+        context.user_data["game_id"] = game_id
+
+        await query.message.reply_text(
+            f"Удалить {game['name']}?",
+            reply_markup=self.yes_no_keyboard(),
+        )
+
+    async def handle_edit_delete_confirm(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ):
+        text = update.message.text
+
+        if text == BTN_NO or text == BTN_BACK:
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        if text != BTN_YES:
+            await update.message.reply_text(
+                "Выберите Да или Нет.",
+                reply_markup=self.yes_no_keyboard(),
+            )
+            return
+
+        game_id = context.user_data.get("game_id")
+        game = self.db.get_game(game_id) if game_id is not None else None
+
+        if game_id is None or game is None:
+            await update.message.reply_text("Игра не найдена.")
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        notify_text = f"Игра «{game['name']}» отменена."
+        players = self.db.get_ready_players_for_game(game_id)
+        success = self.db.delete_game(game_id)
+
+        if not success:
+            await update.message.reply_text("Не удалось удалить игру.")
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        await self._delete_game_poll_message(context.bot, game)
+        await self.notify_ready_players(
+            context,
+            game_id,
+            notify_text,
+            players=players,
+        )
+
+        logger.info(
+            "%s удалил игру %s",
+            update.effective_user.id,
+            game_id,
+        )
+        await update.message.reply_text("Игра удалена.")
+        await self.reset_keyboard_and_state(update, context)
 
     # =================================================================
     # ОПРОС

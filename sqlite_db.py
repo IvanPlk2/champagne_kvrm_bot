@@ -344,6 +344,30 @@ class SqliteDB:
             self.connection.rollback()
             return False
 
+    def delete_game(self, base_id: int) -> bool:
+        """
+        Удаляет игру и ответы о готовности к ней.
+        """
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    DELETE FROM ready_to_play
+                    WHERE game = ?
+                """, (base_id,))
+                cursor.execute("""
+                    DELETE FROM games
+                    WHERE base_id = ?
+                """, (base_id,))
+                deleted = cursor.rowcount > 0
+
+            self.connection.commit()
+            return deleted
+
+        except Error:
+            self.connection.rollback()
+            return False
+
     def get_my_tournaments(self, tg_id: int):
         """
         Возвращает первые 10 будущих турниров,
@@ -603,7 +627,7 @@ class SqliteDB:
                         place,
                         "date_start"
                     FROM games
-                    WHERE "date_start" >= CURRENT_DATE""" + poll + """
+                    WHERE COALESCE("date_end", "date_start") >= CURRENT_DATE""" + poll + """
                     ORDER BY "date_start"
                     LIMIT ?
                 """, (limit,))
@@ -698,6 +722,28 @@ class SqliteDB:
                     poll_id,
                     game_id
                 ))
+
+                updated = cursor.rowcount > 0
+
+            self.connection.commit()
+            return updated
+
+        except Error:
+            self.connection.rollback()
+            return False
+
+    def clear_game_poll(self, game_id: int) -> bool:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    UPDATE games
+                    SET
+                        poll = NULL,
+                        poll_id = NULL,
+                        team_notified = 0
+                    WHERE base_id = ?
+                """, (game_id,))
 
                 updated = cursor.rowcount > 0
 
