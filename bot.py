@@ -86,6 +86,7 @@ PLAYERS_CALLBACK = 'players'
 PLACE_CALLBACK = 'place'
 POLL_CALLBACK = 'poll'
 ADD_PLAYER_CALLBACK = 'add_player'
+LINK_SUGGEST_CALLBACK = 'link_s'
 SHOW_POLL_CALLBACK = 'show_poll'
 LEGIONARY_CALLBACK = 'legionary'
 EDIT_GAME_CALLBACK = 'edit'
@@ -97,6 +98,7 @@ ADMIN_CALLBACKS = {
     PLACE_CALLBACK,
     POLL_CALLBACK,
     ADD_PLAYER_CALLBACK,
+    LINK_SUGGEST_CALLBACK,
     SHOW_POLL_CALLBACK,
     LEGIONARY_CALLBACK,
     EDIT_GAME_CALLBACK,
@@ -121,6 +123,7 @@ ADMIN_STATES = {
 }
 
 TEAM_NAME = "Советское Шампанское"
+TEAM_ID = 85915
 TEAM_LINK = "https://rating.pecheny.me/teams/85915"
 
 
@@ -606,12 +609,12 @@ class KvrmBot:
 
         if callback_cmd == ADD_PLAYER_CALLBACK:
             player_id = int(text)
+            await self.ask_link_player_id(query, context, player_id)
+            return
 
-            context.user_data["player_id"] = player_id
-            context.user_data["state"] = STATE_ADD_PLAYER_RATING_ID
-            await query.message.reply_text(
-                "Введите id рейтинга:"
-            )
+        if callback_cmd == LINK_SUGGEST_CALLBACK:
+            rating_id = int(text)
+            await self.confirm_link_player_by_id(query.message, context, rating_id)
             return
 
         if callback_cmd == SHOW_POLL_CALLBACK:
@@ -1997,33 +2000,8 @@ class KvrmBot:
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
 
-    async def handle_add_player_rating_id(
-        self,
-        update: Update,
-        context: ContextTypes.DEFAULT_TYPE
-    ):
-        try:
-            rating_id = int(update.message.text)
-        except ValueError:
-            await update.message.reply_text(
-                "ID рейтинга должен быть числом."
-            )
-            return
-
-        try:
-            data = await self.rating_api.get_player(rating_id)
-        except Exception as exc:
-            logger.exception(exc)
-
-            await update.message.reply_text(
-                "Не удалось получить данные игрока."
-            )
-            return
-
-        context.user_data["rating_player"] = data
-        context.user_data["state"] = STATE_ADD_PLAYER_CONFIRM
-
-        full_name = " ".join(
+    def _player_full_name(self, data: dict) -> str:
+        return " ".join(
             x for x in [
                 data.get("surname"),
                 data.get("name"),
@@ -2032,9 +2010,137 @@ class KvrmBot:
             if x
         )
 
-        await update.message.reply_text(
+    def _link_suggestion_keyboard(self, suggestions: list[dict]):
+        used_labels: set[str] = set()
+        keyboard = []
+        for player in suggestions:
+            name = " ".join(
+                x for x in [player.get("surname"), player.get("name")]
+                if x
+            ).strip() or str(player["id"])
+            label = name[:64]
+            if label in used_labels:
+                suffix = f" [{player['id']}]"
+                label = (name[: max(0, 64 - len(suffix))] + suffix)[:64]
+            used_labels.add(label)
+            keyboard.append([
+                InlineKeyboardButton(
+                    text=label,
+                    callback_data=f"{LINK_SUGGEST_CALLBACK}:{player['id']}",
+                )
+            ])
+        return InlineKeyboardMarkup(keyboard) if keyboard else None
+
+    async def ask_link_player_id(self, query, context, player_id: int):
+        context.user_data["player_id"] = player_id
+        context.user_data["state"] = STATE_ADD_PLAYER_RATING_ID
+        context.user_data["link_suggestions"] = {}
+
+        await query.message.reply_text(
+            "Введите id рейтинга:",
+            reply_markup=self.back_keyboard(),
+        )
+
+        game = self.db.get_last_ready_game(player_id)
+        if game is None:
+            return
+
+        try:
+            roster = await self.rating_api.get_team_roster_at_tournament(
+                game["base_id"],
+                TEAM_ID,
+            )
+        except Exception:
+            logger.exception(
+                "Не удалось получить состав команды на турнире %s",
+                game["base_id"],
+            )
+            return
+
+        linked_ids = self.db.get_linked_base_ids()
+        suggestions = [
+            player for player in roster
+            if player["id"] not in linked_ids
+        ]
+        context.user_data["link_suggestions"] = {
+            player["id"]: player for player in suggestions
+        }
+
+        keyboard = self._link_suggestion_keyboard(suggestions)
+        if not keyboard:
+            return
+
+        game_name = game.get("name") or str(game["base_id"])
+        await query.message.reply_text(
+            f"По составу «{game_name}» это может быть:",
+            reply_markup=keyboard,
+        )
+
+    async def confirm_link_player_by_id(
+        self,
+        message,
+        context: ContextTypes.DEFAULT_TYPE,
+        rating_id: int,
+    ):
+        if context.user_data.get("player_id") is None:
+            await message.reply_text(
+                "Сначала выберите игрока Telegram."
+            )
+            return
+
+        suggestions = context.user_data.get("link_suggestions") or {}
+        data = suggestions.get(rating_id)
+
+        if not data:
+            try:
+                data = await self.rating_api.get_player(rating_id)
+            except Exception as exc:
+                logger.exception(exc)
+                await message.reply_text(
+                    "Не удалось получить данные игрока."
+                )
+                return
+
+        if data.get("id") in self.db.get_linked_base_ids():
+            await message.reply_text("Этот игрок уже привязан.")
+            return
+
+        context.user_data["rating_player"] = {
+            "id": data.get("id"),
+            "name": data.get("name"),
+            "surname": data.get("surname"),
+            "patronymic": data.get("patronymic"),
+        }
+        context.user_data["state"] = STATE_ADD_PLAYER_CONFIRM
+
+        full_name = self._player_full_name(data) or str(data.get("id"))
+        await message.reply_text(
             f"Это {full_name}?",
             reply_markup=self.yes_no_keyboard(),
+        )
+
+    async def handle_add_player_rating_id(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ):
+        text = (update.message.text or "").strip()
+        if text == BTN_BACK:
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        try:
+            rating_id = int(text)
+        except ValueError:
+            await update.message.reply_text(
+                "ID рейтинга должен быть числом."
+            )
+            return
+
+        await self.confirm_link_player_by_id(
+            update.message,
+            context,
+            rating_id,
         )
 
     async def handle_add_player_confirm(
@@ -2044,8 +2150,21 @@ class KvrmBot:
     ):
         text = update.message.text
 
-        if text == BTN_NO:
-            await self.reset_keyboard_and_state(update, context)
+        if text == BTN_NO or text == BTN_BACK:
+            context.user_data["state"] = STATE_ADD_PLAYER_RATING_ID
+            suggestions = list(
+                (context.user_data.get("link_suggestions") or {}).values()
+            )
+            keyboard = self._link_suggestion_keyboard(suggestions)
+            await update.message.reply_text(
+                "Введите id рейтинга:",
+                reply_markup=self.back_keyboard(),
+            )
+            if keyboard:
+                await update.message.reply_text(
+                    "По составу последней игры это может быть:",
+                    reply_markup=keyboard,
+                )
             return
 
         if text != BTN_YES:

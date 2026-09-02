@@ -383,6 +383,37 @@ class PostgresDB:
 
         return self.fetch_all(query, (tg_id,))
 
+    def get_last_ready_game(self, tg_id: int):
+        """
+        Последняя уже прошедшая игра, где игрок отметил готовность.
+        """
+        try:
+            self.check_connection()
+            with self.connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT
+                        g.base_id,
+                        g.name
+                    FROM ready_to_play r
+                    JOIN games g
+                        ON g.base_id = r.game
+                    WHERE r.player = %s
+                      AND r.ready = TRUE
+                      AND COALESCE(g.date_end, g.date_start) < CURRENT_TIMESTAMP
+                    ORDER BY COALESCE(g.date_end, g.date_start) DESC
+                    LIMIT 1
+                """, (tg_id,))
+                result = cursor.fetchone()
+
+            self.connection.commit()
+            if result is None:
+                return None
+            return {"base_id": result[0], "name": result[1]}
+
+        except Error:
+            self.connection.rollback()
+            return None
+
     # =====================================================================
     # PLAYERS
     # =====================================================================
@@ -841,6 +872,24 @@ class PostgresDB:
         except Error:
             self.connection.rollback()
             return []
+
+    def get_linked_base_ids(self) -> set:
+        try:
+            self.check_connection()
+            with self.connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT base_id
+                    FROM players
+                    WHERE base_id IS NOT NULL
+                """)
+                result = cursor.fetchall()
+
+            self.connection.commit()
+            return {row[0] for row in result}
+
+        except Error:
+            self.connection.rollback()
+            return set()
 
     def update_player_by_tg_id(
         self,

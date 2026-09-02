@@ -66,7 +66,7 @@ class RatingAPI:
         response.raise_for_status()
         data = response.json()
         if isinstance(data, dict):
-            data = data.get("hydra:member") or data.get("items") or []
+            data = data.get("items") or []
 
         tournaments = [
             self._parse_tournament(item)
@@ -122,3 +122,47 @@ class RatingAPI:
             "surname": data.get("surname"),
             "patronymic": data.get("patronymic")
         }
+
+    def _parse_result_list(self, data):
+        if isinstance(data, dict):
+            data = data.get("items") or []
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict)]
+
+    def _parse_roster_player(self, member: dict) -> Optional[dict]:
+        player = member.get("player") or {}
+        player_id = player.get("id")
+        if player_id is None:
+            return None
+        return {
+            "id": int(player_id),
+            "name": player.get("name"),
+            "surname": player.get("surname"),
+            "patronymic": player.get("patronymic"),
+        }
+
+    async def get_team_roster_at_tournament(
+        self,
+        tournament_id: int,
+        team_id: int,
+    ) -> list[dict]:
+        response = await self.client.get(
+            f"/tournaments/{tournament_id}/results",
+            params={"includeTeamMembers": 1},
+            timeout=15.0,
+        )
+        response.raise_for_status()
+        for row in self._parse_result_list(response.json()):
+            team = row.get("team") or {}
+            if team.get("id") != team_id:
+                continue
+            players = []
+            for member in row.get("teamMembers") or []:
+                if not isinstance(member, dict):
+                    continue
+                parsed = self._parse_roster_player(member)
+                if parsed:
+                    players.append(parsed)
+            return players
+        return []
