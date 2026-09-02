@@ -670,11 +670,11 @@ class SqliteDB:
             places = []
             seen = set()
             for (place,) in rows:
-                value = (place or "").strip()
+                value = (place or "").strip().casefold()
                 if not value or value in seen:
                     continue
                 seen.add(value)
-                places.append(value)
+                places.append(place)
             return places
 
         except Error:
