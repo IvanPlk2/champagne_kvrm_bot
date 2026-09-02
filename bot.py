@@ -221,6 +221,21 @@ class KvrmBot:
             resize_keyboard=True,
         )
 
+    def place_keyboard(self, places: list[str]):
+        buttons = [[place] for place in places]
+        buttons.append([BTN_BACK])
+        return ReplyKeyboardMarkup(
+            buttons,
+            resize_keyboard=True,
+        )
+
+    async def ask_place(self, message, prompt: str):
+        places = self.db.get_recent_non_festival_places(15)
+        await message.reply_text(
+            prompt,
+            reply_markup=self.place_keyboard(places),
+        )
+
     def add_game_select_keyboard(self, labels: list[str], extra_button: str):
         buttons = [[label] for label in labels]
         buttons.append([extra_button])
@@ -992,15 +1007,17 @@ class KvrmBot:
         context.user_data["new_game_date_end"] = data.get("date_end")
         context.user_data["state"] = STATE_ADD_GAME_PLACE
 
-        await update.message.reply_text(
-            "Введите место:"
-        )
+        await self.ask_place(update.message, "Введите место:")
 
     async def handle_add_game_place(
         self,
         update: Update,
         context: ContextTypes.DEFAULT_TYPE
     ):
+        if update.message.text == BTN_BACK:
+            await self.reset_keyboard_and_state(update, context)
+            return
+
         game_id = context.user_data.get("new_game_base_id")
 
         if game_id is None:
@@ -1022,7 +1039,10 @@ class KvrmBot:
         )
         if window:
             prompt += f"\nСрок проведения (GMT+3): {window}"
-        await update.message.reply_text(prompt)
+        await update.message.reply_text(
+            prompt,
+            reply_markup=ReplyKeyboardRemove(),
+        )
 
     async def handle_add_game_date_start(
         self,
@@ -1302,10 +1322,7 @@ class KvrmBot:
         if game.get("place"):
             prompt += f"\nСейчас: {game['place']}"
 
-        await query.message.reply_text(
-            prompt,
-            reply_markup=self.back_keyboard(),
-        )
+        await self.ask_place(query.message, prompt)
 
     async def handle_update_place(
         self,
@@ -1330,7 +1347,8 @@ class KvrmBot:
 
         if success:
             await update.message.reply_text(
-                "Место обновлено."
+                "Место обновлено.",
+                reply_markup=ReplyKeyboardRemove(),
             )
 
             logger.info(
@@ -1352,7 +1370,8 @@ class KvrmBot:
 
         else:
             await update.message.reply_text(
-                "Не удалось обновить место."
+                "Не удалось обновить место.",
+                reply_markup=ReplyKeyboardRemove(),
             )
 
         await self.reset_keyboard_and_state(update, context)

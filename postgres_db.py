@@ -102,6 +102,13 @@ class PostgresDB:
                     ON games (date_start);
                 """)
 
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS
+                    idx_games_date_start_non_festival
+                    ON games (date_start)
+                    WHERE is_festival IS NOT TRUE;
+                """)
+
                 # =========================================================
                 # players
                 # =========================================================
@@ -617,6 +624,39 @@ class PostgresDB:
 
             self.connection.commit()
             return result
+
+        except Error:
+            self.connection.rollback()
+            return []
+
+    def get_recent_non_festival_places(self, limit: int = 15) -> list[str]:
+        """
+        Уникальные места из последних обычных (не фестиваль) игр,
+        в порядке от более новых к более старым.
+        """
+        try:
+            self.check_connection()
+            with self.connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT place
+                    FROM games
+                    WHERE is_festival IS NOT TRUE
+                      AND date_start IS NOT NULL
+                    ORDER BY date_start DESC
+                    LIMIT %s
+                """, (limit,))
+                rows = cursor.fetchall()
+
+            self.connection.commit()
+            places = []
+            seen = set()
+            for (place,) in rows:
+                value = (place or "").strip()
+                if not value or value in seen:
+                    continue
+                seen.add(value)
+                places.append(value)
+            return places
 
         except Error:
             self.connection.rollback()
