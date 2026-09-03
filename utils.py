@@ -1,10 +1,8 @@
 import calendar
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 from typing import Optional
 
-
-UTC_TZ = timezone.utc
-MSK_TZ = timezone(timedelta(hours=3))
+from const import MSK_TZ, UTC_TZ
 
 
 def add_months(value: date, months: int) -> date:

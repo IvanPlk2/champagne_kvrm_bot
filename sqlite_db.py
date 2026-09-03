@@ -4,6 +4,8 @@ from typing import Optional
 import sqlite3
 from sqlite3 import Error
 
+from const import AnnounceOfferStatus
+
 
 def _adapt_datetime(value: datetime) -> str:
     return value.isoformat(sep=" ", timespec="seconds")
@@ -143,7 +145,8 @@ class SqliteDB:
                         is_base INTEGER NOT NULL DEFAULT 0,
                         is_admin INTEGER NOT NULL DEFAULT 0,
                         tg_username TEXT,
-                        enable_notifications INTEGER DEFAULT 1
+                        enable_notifications INTEGER DEFAULT 1,
+                        enable_announce_offers INTEGER DEFAULT 0
                     );
                 """)
 
@@ -181,6 +184,42 @@ class SqliteDB:
                     CREATE UNIQUE INDEX IF NOT EXISTS
                     idx_ready_to_play_player_game
                     ON ready_to_play (player, game);
+                """)
+
+                cursor.execute("PRAGMA table_info(players)")
+                players_columns = {row[1] for row in cursor.fetchall()}
+                if "enable_announce_offers" not in players_columns:
+                    cursor.execute("""
+                        ALTER TABLE players
+                        ADD COLUMN enable_announce_offers INTEGER DEFAULT 0;
+                    """)
+
+                # =========================================================
+                # announce_offers
+                # =========================================================
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS announce_offers (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        fingerprint TEXT NOT NULL,
+                        tournament_id INTEGER,
+                        name TEXT,
+                        place TEXT,
+                        date_start TIMESTAMP,
+                        price TEXT,
+                        status TEXT NOT NULL
+                    );
+                """)
+
+                cursor.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    idx_announce_offers_fingerprint
+                    ON announce_offers (fingerprint);
+                """)
+
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS
+                    idx_announce_offers_tournament_id
+                    ON announce_offers (tournament_id);
                 """)
 
             self.connection.commit()
@@ -729,6 +768,37 @@ class SqliteDB:
             self.connection.rollback()
             return set()
 
+    def get_games_for_announce_match(self) -> list[dict]:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT
+                        base_id,
+                        name,
+                        place,
+                        date_start
+                    FROM games
+                    WHERE is_festival IS NOT TRUE
+                      AND COALESCE(date_end, date_start) >= CURRENT_DATE
+                """)
+                result = cursor.fetchall()
+
+            self.connection.commit()
+            return [
+                {
+                    "base_id": row[0],
+                    "name": row[1],
+                    "place": row[2],
+                    "date_start": row[3],
+                }
+                for row in result
+            ]
+
+        except Error:
+            self.connection.rollback()
+            return []
+
     def get_game(self, game_id: int):
         try:
             self.check_connection()
@@ -1007,6 +1077,294 @@ class SqliteDB:
         except Error:
             self.connection.rollback()
             return 0
+
+    # =====================================================================
+    # ANNOUNCE OFFERS
+    # =====================================================================
+
+    def get_announce_offer_admin_tg_ids(self) -> list[int]:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT tg_id
+                    FROM players
+                    WHERE is_admin = 1
+                      AND enable_announce_offers = 1
+                      AND tg_id IS NOT NULL
+                """)
+                result = cursor.fetchall()
+
+            self.connection.commit()
+            return [row[0] for row in result]
+
+        except Error:
+            self.connection.rollback()
+            return []
+
+    def can_receive_announce_offers(self, tg_id: int) -> bool:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT is_admin, enable_announce_offers
+                    FROM players
+                    WHERE tg_id = ?
+                """, (tg_id,))
+                result = cursor.fetchone()
+
+            self.connection.commit()
+            if result is None:
+                return False
+            return bool(result[0]) and bool(result[1])
+
+        except Error:
+            self.connection.rollback()
+            return False
+
+    def has_announce_offers(self) -> bool:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT 1
+                    FROM announce_offers
+                    LIMIT 1
+                """)
+                result = cursor.fetchone()
+
+            self.connection.commit()
+            return result is not None
+
+        except Error:
+            self.connection.rollback()
+            return False
+
+    def get_announce_offer(self, offer_id: int):
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT
+                        id,
+                        fingerprint,
+                        tournament_id,
+                        name,
+                        place,
+                        date_start,
+                        price,
+                        status
+                    FROM announce_offers
+                    WHERE id = ?
+                """, (offer_id,))
+                result = cursor.fetchone()
+
+            self.connection.commit()
+            if result is None:
+                return None
+            return self._announce_offer_from_row(result)
+
+        except Error:
+            self.connection.rollback()
+            return None
+
+    def get_announce_offer_by_fingerprint(self, fingerprint: str):
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT
+                        id,
+                        fingerprint,
+                        tournament_id,
+                        name,
+                        place,
+                        date_start,
+                        price,
+                        status
+                    FROM announce_offers
+                    WHERE fingerprint = ?
+                """, (fingerprint,))
+                result = cursor.fetchone()
+
+            self.connection.commit()
+            if result is None:
+                return None
+            return self._announce_offer_from_row(result)
+
+        except Error:
+            self.connection.rollback()
+            return None
+
+    def get_announce_offer_names(self, statuses: tuple[AnnounceOfferStatus, ...]) -> list[str]:
+        if not statuses:
+            return []
+        try:
+            self.check_connection()
+            values = tuple(status.value for status in statuses)
+            placeholders = ", ".join("?" for _ in values)
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT name
+                    FROM announce_offers
+                    WHERE status IN ({placeholders})
+                    """,
+                    values,
+                )
+                result = cursor.fetchall()
+
+            self.connection.commit()
+            return [row[0] for row in result if row[0]]
+
+        except Error:
+            self.connection.rollback()
+            return []
+
+    def tournament_has_announce_offer(self, tournament_id: int) -> bool:
+        try:
+            self.check_connection()
+            tracked = (
+                AnnounceOfferStatus.OFFERED.value,
+                AnnounceOfferStatus.ADDED.value,
+            )
+            placeholders = ", ".join("?" for _ in tracked)
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT 1
+                    FROM announce_offers
+                    WHERE tournament_id = ?
+                      AND status IN ({placeholders})
+                    LIMIT 1
+                    """,
+                    (tournament_id, *tracked),
+                )
+                result = cursor.fetchone()
+
+            self.connection.commit()
+            return result is not None
+
+        except Error:
+            self.connection.rollback()
+            return False
+
+    def add_announce_offer(
+        self,
+        fingerprint: str,
+        tournament_id: Optional[int],
+        name: str,
+        place: str,
+        date_start: datetime,
+        price: str,
+        status: AnnounceOfferStatus,
+    ):
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    INSERT INTO announce_offers (
+                        fingerprint,
+                        tournament_id,
+                        name,
+                        place,
+                        date_start,
+                        price,
+                        status
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    fingerprint,
+                    tournament_id,
+                    name,
+                    place,
+                    date_start,
+                    price,
+                    status.value,
+                ))
+                offer_id = cursor.lastrowid
+
+            self.connection.commit()
+            return self.get_announce_offer(offer_id)
+
+        except Error:
+            self.connection.rollback()
+            return None
+
+    def set_announce_offer_tournament(
+        self,
+        offer_id: int,
+        tournament_id: int,
+    ) -> bool:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    UPDATE announce_offers
+                    SET tournament_id = ?
+                    WHERE id = ?
+                """, (tournament_id, offer_id))
+                updated = cursor.rowcount > 0
+
+            self.connection.commit()
+            return updated
+
+        except Error:
+            self.connection.rollback()
+            return False
+
+    def set_announce_offer_status(self, offer_id: int, status: AnnounceOfferStatus) -> bool:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    UPDATE announce_offers
+                    SET status = ?
+                    WHERE id = ?
+                """, (status.value, offer_id))
+                updated = cursor.rowcount > 0
+
+            self.connection.commit()
+            return updated
+
+        except Error:
+            self.connection.rollback()
+            return False
+
+    def set_announce_offers_status_for_tournament(
+        self,
+        tournament_id: int,
+        status: AnnounceOfferStatus,
+    ) -> bool:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    UPDATE announce_offers
+                    SET status = ?
+                    WHERE tournament_id = ?
+                """, (status.value, tournament_id))
+                updated = cursor.rowcount > 0
+
+            self.connection.commit()
+            return updated
+
+        except Error:
+            self.connection.rollback()
+            return False
+
+    @staticmethod
+    def _announce_offer_from_row(result) -> dict:
+        return {
+            "id": result[0],
+            "fingerprint": result[1],
+            "tournament_id": result[2],
+            "name": result[3],
+            "place": result[4],
+            "date_start": result[5],
+            "price": result[6],
+            "status": AnnounceOfferStatus(result[7]),
+        }
 
     # =====================================================================
     # CONNECTION

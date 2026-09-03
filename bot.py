@@ -22,8 +22,9 @@ from telegram.ext import (
 
 from sqlite_db import SqliteDB
 from rating_api import RatingAPI
+from announce_offers import AnnounceOffers
+from const import ANNOUNCE_OFFER_CALLBACK, MSK_TZ
 from utils import (
-    MSK_TZ,
     add_months,
     format_msk_window,
     get_when_text,
@@ -105,6 +106,7 @@ ADMIN_CALLBACKS = {
     EDIT_PLACE_CALLBACK,
     EDIT_DATE_CALLBACK,
     EDIT_DELETE_CALLBACK,
+    ANNOUNCE_OFFER_CALLBACK,
 }
 
 ADMIN_STATES = {
@@ -147,10 +149,12 @@ class KvrmBot:
             password="",
         )
         self.rating_api = RatingAPI()
+        self.announces = AnnounceOffers(self.db, self.rating_api)
 
         self.application = (
             Application.builder()
             .token(self.api_key)
+            .post_init(self._post_init)
             .post_shutdown(self._post_shutdown)
             .build()
         )
@@ -563,6 +567,14 @@ class KvrmBot:
             )
             await query.answer("Недостаточно прав.", show_alert=True)
             return
+        elif callback_cmd == ANNOUNCE_OFFER_CALLBACK:
+            if not self.db.can_receive_announce_offers(tg_id):
+                logger.warning(
+                    "Пользователь %s вызвал callback анонса без флага",
+                    tg_id,
+                )
+                await query.answer("Недостаточно прав.", show_alert=True)
+                return
 
         await query.answer()
 
@@ -637,6 +649,10 @@ class KvrmBot:
                 context,
                 game_id
             )
+            return
+
+        if callback_cmd == ANNOUNCE_OFFER_CALLBACK:
+            await self.announces.handle_callback(query, context, parts)
             return
 
     # =================================================================
@@ -2414,8 +2430,12 @@ class KvrmBot:
     # RUN
     # =================================================================
 
+    async def _post_init(self, application: Application) -> None:
+        self.announces.schedule(application)
+
     async def _post_shutdown(self, application: Application) -> None:
         await self.rating_api.close()
+        await self.announces.close()
         self.db.close()
 
     def run(self):
