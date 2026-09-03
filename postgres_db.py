@@ -726,7 +726,8 @@ class PostgresDB:
                         poll,
                         poll_id,
                         is_festival,
-                        difficulty_level
+                        difficulty_level,
+                        team_notified
                     FROM games
                     WHERE base_id = %s
                 """, (game_id,))
@@ -748,6 +749,7 @@ class PostgresDB:
                 "poll_id": result[8],
                 "is_festival": result[9],
                 "difficulty_level": result[10],
+                "team_notified": bool(result[11]),
             }
 
         except Error:

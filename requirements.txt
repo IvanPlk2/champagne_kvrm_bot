@@ -1,3 +1,10 @@
-python-telegram-bot>=21.0,<23.0
-psycopg2-binary>=2.9,<3.0
+# Telegram bot
+python-telegram-bot[job-queue]>=21.0,<23.0
+
+# rating.chgk.info API client
 httpx>=0.27,<1.0
+
+# Оставлена временно для обратной совместимости
+psycopg2-binary>=2.9,<3.0
+# SQLite: модуль sqlite3 входит в стандартную библиотеку Python,
+# отдельная установка через pip не нужна.

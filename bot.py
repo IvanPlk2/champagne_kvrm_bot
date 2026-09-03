@@ -126,6 +126,10 @@ TEAM_NAME = "Советское Шампанское"
 TEAM_ID = 85915
 TEAM_LINK = "https://rating.pecheny.me/teams/85915"
 
+ROSTER_MIN_PLAYERS = 6
+ROSTER_BROKE_DELAY_SECONDS = 60
+ROSTER_BROKE_JOB_PREFIX = "roster_broke:"
+
 
 class KvrmBot:
     def __init__(self):
@@ -2307,13 +2311,13 @@ class KvrmBot:
 
         tg_id = answer.user.id
 
-        # option 0 = "Да"
-        ready = 0 in answer.option_ids
+        # Пустой option_ids — пользователь снял голос в опросе.
+        option_ids = tuple(answer.option_ids or ())
+        ready = 0 in option_ids
 
         game = self.db.get_game_by_poll_id(
             answer.poll_id
         )
-
         if game is None:
             logger.warning(
                 "Получен ответ неизвестного опроса: %s",
@@ -2343,23 +2347,68 @@ class KvrmBot:
             value=ready,
         )
 
-        # Проверяем состав только если пользователь выбрал "Да"
-        if ready and not game["team_notified"]:
-            ready_count = self.db.get_ready_players_count(
-                game["base_id"]
+        ready_count = self.db.get_ready_players_count(game_id)
+
+        if ready and not game["team_notified"] and ready_count >= ROSTER_MIN_PLAYERS:
+            await context.bot.send_message(
+                chat_id=TEAM_CHAT_ID,
+                text=f"Собран состав на {game['name']}",
             )
+            self.db.set_team_notified(game_id, True)
+            return
 
-            if ready_count >= 6:
+        if (
+            not ready
+            and game["team_notified"]
+            and ready_count < ROSTER_MIN_PLAYERS
+        ):
+            self._schedule_roster_broke_check(context, game_id)
 
-                await context.bot.send_message(
-                    chat_id=TEAM_CHAT_ID,
-                    text=f"Собран состав на {game['name']}",
-                )
+    def _roster_broke_job_name(self, game_id: int) -> str:
+        return f"{ROSTER_BROKE_JOB_PREFIX}{game_id}"
 
-                self.db.set_team_notified(
-                    game["base_id"],
-                    True,
-                )
+    def _schedule_roster_broke_check(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        game_id: int,
+    ) -> None:
+        job_queue = context.job_queue
+        if job_queue is None:
+            logger.error("JobQueue недоступен, проверка разбора состава не запланирована")
+            return
+
+        job_name = self._roster_broke_job_name(game_id)
+        if job_queue.get_jobs_by_name(job_name):
+            return
+
+        job_queue.run_once(
+            self.check_roster_broke,
+            when=ROSTER_BROKE_DELAY_SECONDS,
+            data=game_id,
+            name=job_name,
+        )
+
+    async def check_roster_broke(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        job = context.job
+
+        if job is None or job.data is None:
+            return
+
+        game_id = job.data
+        game = self.db.get_game(game_id)
+
+        if game is None or not game.get("team_notified"):
+            return
+
+        ready_count = self.db.get_ready_players_count(game_id)
+        if ready_count >= ROSTER_MIN_PLAYERS:
+            return
+
+        await context.bot.send_message(
+            chat_id=TEAM_CHAT_ID,
+            text=f"Разобрался состав на {game['name']}",
+        )
+        self.db.set_team_notified(game_id, False)
 
     # =================================================================
     # RUN
