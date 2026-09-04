@@ -30,7 +30,7 @@ from week_announces import (
 
 logger = logging.getLogger(__name__)
 
-WEEK_ANNOUNCE_POLL_SECONDS = 1 * 60
+WEEK_ANNOUNCE_POLL_SECONDS = 5 * 60
 WEEK_ANNOUNCE_JOB_NAME = "week_announces"
 
 
