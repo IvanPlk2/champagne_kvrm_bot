@@ -4,6 +4,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from const import MSK_TZ
+from utils import normalize_name
 
 MONTHS = {
     "января": 1,
@@ -39,9 +40,8 @@ MESSAGE_TEXT_RE = re.compile(
 
 
 def normalize_announce_name(value: str) -> str:
-    text = (value or "").replace("ё", "е").replace("Ё", "Е")
-    text = text.replace("–", "-").replace("—", "-")
-    text = re.sub(r"\s+", " ", text).strip().casefold()
+    text = normalize_name(value)
+    text = text.strip().casefold()
     return text
 
 

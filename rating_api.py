@@ -3,7 +3,7 @@ from typing import Optional
 
 import httpx
 
-from utils import parse_rating_datetime
+from utils import parse_rating_datetime, normalize_name
 
 # В текущем API рейтинга: 3 — «Синхрон».
 TOURNAMENT_TYPE_SYNCHRON = 3
@@ -73,13 +73,6 @@ class RatingAPI:
             for item in data
             if isinstance(item, dict)
         ]
-        if name:
-            needle = name.casefold()
-            tournaments = [
-                item
-                for item in tournaments
-                if needle in (item.get("name") or "").casefold()
-            ]
         tournaments.sort(
             key=lambda item: (
                 item.get("date_start") is None,
@@ -93,21 +86,41 @@ class RatingAPI:
 
     async def match_by_long_name(self, date_end_from: date, date_end_to: date, query: str) -> list[dict]:
 
+        def remove_spaces_and_dashes(text: str) -> str:
+            return text.replace(" ", "").replace("-", "")
+
+        def get_matched(needle, haystack):
+            matched = []
+            for item, name in haystack:
+                if needle in name:
+                    matched.append(item)
+            return matched
+
         candidates = await self.list_synchrons(
             date_end_from=date_end_from,
             date_end_to=date_end_to,
             items_per_page=100,
         )
-        needle = (query or "").casefold()
+        needle = normalize_name(query or "").casefold()
         if not needle:
             return []
 
-        matched = []
-        for item in candidates:
-            haystack = (item.get("long_name") or "").casefold()
-            if needle in haystack:
-                matched.append(item)
-        return matched
+        haystack = [
+            (item, normalize_name(item.get("long_name")).casefold())
+            for item in candidates
+        ]
+        matched = get_matched(needle, haystack)
+        if matched:
+            return matched
+
+        # Попробуем поискать без пробелов и тире:
+        needle = remove_spaces_and_dashes(needle)
+        haystack = [(item, remove_spaces_and_dashes(name)) for item, name in haystack]
+
+        if len(needle) < 3:
+            return []
+
+        return get_matched(needle, haystack)
 
     async def get_player(self, player_id: int):
         response = await self.client.get(

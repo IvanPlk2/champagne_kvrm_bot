@@ -1,4 +1,5 @@
 import calendar
+import re
 from datetime import date, datetime
 from typing import Optional
 
@@ -90,3 +91,10 @@ def get_when_text(date_start, date_end, is_festival):
         return "-".join([start_txt, end_txt])
 
     return date_start.strftime("%d.%m.%y %H:%M")
+
+
+def normalize_name(value: str) -> str:
+    text = (value or "").replace("ё", "е").replace("Ё", "Е")
+    text = text.replace("–", "-").replace("—", "-")
+    text = re.sub(r"\s+", " ", text)
+    return text
