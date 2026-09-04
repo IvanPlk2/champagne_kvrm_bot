@@ -566,6 +566,54 @@ class SqliteDB:
             self.connection.rollback()
             return False
 
+    def is_base(self, tg_id: int) -> bool:
+        """
+        Возвращает is_base по tg_id.
+
+        Если игрок не найден — False.
+        """
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT is_base
+                    FROM players
+                    WHERE tg_id = ?
+                """, (tg_id,))
+
+                result = cursor.fetchone()
+
+            if result is None:
+                return False
+
+            return bool(result[0])
+
+        except Error:
+            self.connection.rollback()
+            return False
+
+    def has_voted_in_game(self, tg_id: int, game_base_id: int) -> bool:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT 1
+                    FROM ready_to_play
+                    WHERE player = ? AND game = ?
+                    LIMIT 1
+                """, (tg_id, game_base_id))
+                result = cursor.fetchone()
+            return result is not None
+
+        except Error:
+            self.connection.rollback()
+            return False
+
+    def can_view_game_poll(self, tg_id: int, game_base_id: int) -> bool:
+        if self.is_admin(tg_id) or self.is_base(tg_id):
+            return True
+        return self.has_voted_in_game(tg_id, game_base_id)
+
     def set_rating(self, tg_id: int, value: float) -> bool:
         """
         Изменяет рейтинг игрока по base_id.
@@ -601,14 +649,8 @@ class SqliteDB:
         """
         Устанавливает готовность игрока к игре.
 
-        Если запись существует:
-            изменяет ready.
-
-        Если записи нет и value=True:
-            создаёт запись.
-
-        Если записи нет и value=False:
-            ничего не делает.
+        Если записи нет — создаёт её (в том числе при value=False),
+        чтобы зафиксировать участие в опросе.
         """
         try:
             self.check_connection()
@@ -631,18 +673,14 @@ class SqliteDB:
                     self.connection.commit()
                     return True
 
-                if value:
-                    cursor.execute("""
-                        INSERT INTO ready_to_play (
-                            game,
-                            player,
-                            ready
-                        )
-                        VALUES (?, ?, ?)
-                    """, (game, player, int(value)))
-
-                    self.connection.commit()
-                    return True
+                cursor.execute("""
+                    INSERT INTO ready_to_play (
+                        game,
+                        player,
+                        ready
+                    )
+                    VALUES (?, ?, ?)
+                """, (game, player, int(value)))
 
                 self.connection.commit()
                 return True
@@ -709,6 +747,43 @@ class SqliteDB:
                     LIMIT ?
                 """, (limit,))
 
+                result = cursor.fetchall()
+
+            self.connection.commit()
+            return result
+
+        except Error:
+            self.connection.rollback()
+            return []
+
+    def get_visible_poll_games(self, tg_id: int, limit: int = 10):
+        """
+        Будущие игры с опросом, которые можно показать пользователю.
+
+        Админ и базовый состав видят все такие игры.
+        Легионер — только те, где есть запись в ready_to_play.
+        """
+        if self.is_admin(tg_id) or self.is_base(tg_id):
+            return self.get_future_games(limit, True)
+
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT
+                        g.base_id,
+                        g.name,
+                        g.place,
+                        g."date_start"
+                    FROM games g
+                    JOIN ready_to_play r
+                        ON r.game = g.base_id
+                    WHERE r.player = ?
+                      AND NOT (g.poll_id IS NULL OR g.poll IS NULL)
+                      AND COALESCE(g."date_end", g."date_start") >= CURRENT_DATE
+                    ORDER BY g."date_start"
+                    LIMIT ?
+                """, (tg_id, limit))
                 result = cursor.fetchall()
 
             self.connection.commit()

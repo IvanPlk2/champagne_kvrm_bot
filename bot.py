@@ -100,7 +100,6 @@ ADMIN_CALLBACKS = {
     POLL_CALLBACK,
     ADD_PLAYER_CALLBACK,
     LINK_SUGGEST_CALLBACK,
-    SHOW_POLL_CALLBACK,
     LEGIONARY_CALLBACK,
     EDIT_GAME_CALLBACK,
     EDIT_PLACE_CALLBACK,
@@ -197,6 +196,7 @@ class KvrmBot:
         buttons = [
             [BTN_TOURNAMENTS],
             [BTN_PLAYING_WITH],
+            [BTN_SHOW_POLL],
         ]
 
         if is_admin:
@@ -205,7 +205,6 @@ class KvrmBot:
                 [BTN_ADD_FESTIVAL],
                 [BTN_EDIT_GAME],
                 [BTN_CREATE_POLL],
-                [BTN_SHOW_POLL],
                 [BTN_LINK_PLAYER],
                 [BTN_ALL_TOURNAMENTS],
                 [BTN_LEGIONARY],
@@ -402,7 +401,7 @@ class KvrmBot:
             await self.show_games_for_poll(update)
             return
 
-        if is_admin and text == BTN_SHOW_POLL:
+        if text == BTN_SHOW_POLL:
             await self.show_games_with_polls(update)
             return
 
@@ -567,6 +566,20 @@ class KvrmBot:
             )
             await query.answer("Недостаточно прав.", show_alert=True)
             return
+        elif callback_cmd == SHOW_POLL_CALLBACK:
+            try:
+                poll_game_id = int(text)
+            except ValueError:
+                await query.answer()
+                return
+            if not self.db.can_view_game_poll(tg_id, poll_game_id):
+                logger.warning(
+                    "Пользователь %s запросил чужой опрос %s",
+                    tg_id,
+                    poll_game_id,
+                )
+                await query.answer("Недостаточно прав.", show_alert=True)
+                return
         elif callback_cmd == ANNOUNCE_OFFER_CALLBACK:
             if not self.db.can_receive_announce_offers(tg_id):
                 logger.warning(
@@ -1819,10 +1832,8 @@ class KvrmBot:
         )
 
     async def show_games_with_polls(self, update):
-        games = self.db.get_future_games(
-            limit=10,
-            has_poll=True,
-        )
+        tg_id = update.effective_user.id
+        games = self.db.get_visible_poll_games(tg_id, limit=10)
 
         if not games:
             await update.message.reply_text(
