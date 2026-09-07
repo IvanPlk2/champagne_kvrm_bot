@@ -567,6 +567,72 @@ class PostgresDB:
             self.connection.rollback()
             return False
 
+    def get_player_settings(self, tg_id: int):
+        """
+        Возвращает настройки игрока по tg_id.
+        """
+        try:
+            self.check_connection()
+            with self.connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT
+                        is_base,
+                        enable_notifications,
+                        enable_announce_offers
+                    FROM players
+                    WHERE tg_id = %s
+                """, (tg_id,))
+                result = cursor.fetchone()
+
+            if result is None:
+                return None
+
+            return {
+                "is_base": bool(result[0]),
+                "enable_notifications": bool(result[1]) if result[1] is not None else True,
+                "enable_announce_offers": bool(result[2]),
+            }
+
+        except Error:
+            self.connection.rollback()
+            return None
+
+    def set_enable_notifications(self, tg_id: int, value: bool) -> bool:
+        try:
+            self.check_connection()
+            with self.connection.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE players
+                    SET enable_notifications = %s
+                    WHERE tg_id = %s
+                """, (value, tg_id))
+                updated = cursor.rowcount > 0
+
+            self.connection.commit()
+            return updated
+
+        except Error:
+            self.connection.rollback()
+            return False
+
+    def set_enable_announce_offers(self, tg_id: int, value: bool) -> bool:
+        try:
+            self.check_connection()
+            with self.connection.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE players
+                    SET enable_announce_offers = %s
+                    WHERE tg_id = %s
+                """, (value, tg_id))
+                updated = cursor.rowcount > 0
+
+            self.connection.commit()
+            return updated
+
+        except Error:
+            self.connection.rollback()
+            return False
+
     def has_voted_in_game(self, tg_id: int, game_base_id: int) -> bool:
         try:
             self.check_connection()
@@ -1139,7 +1205,7 @@ class PostgresDB:
                 cursor.execute("""
                     SELECT tg_id
                     FROM players
-                    WHERE is_admin IS TRUE
+                    WHERE (is_admin IS TRUE OR is_base IS TRUE)
                       AND enable_announce_offers IS TRUE
                       AND tg_id IS NOT NULL
                 """)
@@ -1157,7 +1223,7 @@ class PostgresDB:
             self.check_connection()
             with self.connection.cursor() as cursor:
                 cursor.execute("""
-                    SELECT is_admin, enable_announce_offers
+                    SELECT is_admin, is_base, enable_announce_offers
                     FROM players
                     WHERE tg_id = %s
                 """, (tg_id,))
@@ -1166,7 +1232,7 @@ class PostgresDB:
             self.connection.commit()
             if result is None:
                 return False
-            return bool(result[0]) and bool(result[1])
+            return (bool(result[0]) or bool(result[1])) and bool(result[2])
 
         except Error:
             self.connection.rollback()

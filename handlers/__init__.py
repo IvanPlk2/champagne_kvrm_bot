@@ -3,6 +3,7 @@ from handlers.keyboards import KeyboardMixin
 from handlers.players import PlayerHandlers
 from handlers.polls import PollHandlers
 from handlers.roster import RosterHandlers
+from handlers.settings import SettingsHandlers
 
 __all__ = [
     "GameHandlers",
@@ -10,4 +11,5 @@ __all__ = [
     "PlayerHandlers",
     "PollHandlers",
     "RosterHandlers",
+    "SettingsHandlers",
 ]

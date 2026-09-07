@@ -18,6 +18,8 @@ from const import (
     ADD_PLAYER_CALLBACK,
     ADMIN_CALLBACKS,
     ADMIN_STATES,
+    BASE_CALLBACKS,
+    BASE_STATES,
     ANNOUNCE_OFFER_CALLBACK,
     BTN_ADD_FESTIVAL,
     BTN_ADD_GAME,
@@ -33,6 +35,11 @@ from const import (
     BTN_PLAYING_WITH,
     BTN_SHOW_POLL,
     BTN_TOURNAMENTS,
+    BTN_SETTINGS,
+    BTN_ENABLE_NOTIFICATIONS,
+    BTN_DISABLE_NOTIFICATIONS,
+    BTN_ENABLE_ANNOUNCE_OFFERS,
+    BTN_DISABLE_ANNOUNCE_OFFERS,
     EDIT_DATE_CALLBACK,
     EDIT_DELETE_CALLBACK,
     EDIT_GAME_CALLBACK,
@@ -63,6 +70,7 @@ from handlers import (
     PlayerHandlers,
     PollHandlers,
     RosterHandlers,
+    SettingsHandlers,
 )
 from rating_api import RatingAPI
 from sqlite_db import SqliteDB
@@ -81,6 +89,7 @@ class KvrmBot(
     PollHandlers,
     PlayerHandlers,
     RosterHandlers,
+    SettingsHandlers,
 ):
     def __init__(self):
         self.api_key = API_KEY
@@ -169,6 +178,16 @@ class KvrmBot(
             await self.reset_keyboard_and_state(update, context)
             return
 
+        if state in BASE_STATES and not self.can_manage_games(tg_id):
+            logger.warning(
+                "Пользователь %s попытался использовать состояние игр %s",
+                tg_id,
+                state,
+            )
+            await update.message.reply_text("Недостаточно прав.")
+            await self.reset_keyboard_and_state(update, context)
+            return
+
         if state == STATE_ADD_GAME_SELECT:
             await self.handle_add_game_select(update, context)
             return
@@ -218,6 +237,7 @@ class KvrmBot(
             return
 
         is_admin = self.db.is_admin(tg_id)
+        can_manage_games = self.can_manage_games(tg_id)
 
         if text == BTN_TOURNAMENTS:
             await self.show_my_tournaments(update)
@@ -227,11 +247,23 @@ class KvrmBot(
             await self.show_tournaments_for_players(update)
             return
 
-        if is_admin and text == BTN_ADMIN_GAMES:
+        if text == BTN_SETTINGS:
+            await self.show_settings_menu(update)
+            return
+
+        if text in (BTN_ENABLE_NOTIFICATIONS, BTN_DISABLE_NOTIFICATIONS):
+            await self.handle_toggle_notifications(update)
+            return
+
+        if text in (BTN_ENABLE_ANNOUNCE_OFFERS, BTN_DISABLE_ANNOUNCE_OFFERS):
+            await self.handle_toggle_announce_offers(update)
+            return
+
+        if can_manage_games and text == BTN_ADMIN_GAMES:
             await self.show_admin_games_menu(update)
             return
 
-        if is_admin and text == BTN_ADMIN_POLLS:
+        if can_manage_games and text == BTN_ADMIN_POLLS:
             await self.show_admin_polls_menu(update)
             return
 
@@ -239,19 +271,19 @@ class KvrmBot(
             await self.show_admin_players_menu(update)
             return
 
-        if is_admin and text == BTN_ADD_GAME:
+        if can_manage_games and text == BTN_ADD_GAME:
             await self.start_add_game(update, context, False)
             return
 
-        if is_admin and text == BTN_ADD_FESTIVAL:
+        if can_manage_games and text == BTN_ADD_FESTIVAL:
             await self.start_add_game(update, context, True)
             return
 
-        if is_admin and text == BTN_EDIT_GAME:
+        if can_manage_games and text == BTN_EDIT_GAME:
             await self.show_games_for_edit(update)
             return
 
-        if is_admin and text == BTN_CREATE_POLL:
+        if can_manage_games and text == BTN_CREATE_POLL:
             await self.show_games_for_poll(update)
             return
 
@@ -263,7 +295,7 @@ class KvrmBot(
             await self.show_players_for_add(update)
             return
 
-        if is_admin and text == BTN_ALL_TOURNAMENTS:
+        if can_manage_games and text == BTN_ALL_TOURNAMENTS:
             await self.show_tournaments(update)
             return
 
@@ -277,19 +309,23 @@ class KvrmBot(
 
         await update.message.reply_text("Неизвестная команда.")
 
+    def can_manage_games(self, tg_id: int) -> bool:
+        return self.db.is_admin(tg_id) or self.db.is_base(tg_id)
+
     async def show_main_menu(self, update: Update):
         tg_id = update.effective_user.id
         is_admin = self.db.is_admin(tg_id)
+        is_base = self.db.is_base(tg_id)
 
         if update.message:
             await update.message.reply_text(
                 "Выберите действие:",
-                reply_markup=self.main_keyboard(is_admin),
+                reply_markup=self.main_keyboard(is_admin, is_base),
             )
         elif update.callback_query:
             await update.callback_query.message.reply_text(
                 "Выберите действие:",
-                reply_markup=self.main_keyboard(is_admin),
+                reply_markup=self.main_keyboard(is_admin, is_base),
             )
 
     async def show_admin_games_menu(self, update: Update):
@@ -329,6 +365,14 @@ class KvrmBot(
         if callback_cmd in ADMIN_CALLBACKS and not self.db.is_admin(tg_id):
             logger.warning(
                 "Пользователь %s вызвал админ-callback %s",
+                tg_id,
+                callback_cmd,
+            )
+            await query.answer("Недостаточно прав.", show_alert=True)
+            return
+        if callback_cmd in BASE_CALLBACKS and not self.can_manage_games(tg_id):
+            logger.warning(
+                "Пользователь %s вызвал callback игр %s",
                 tg_id,
                 callback_cmd,
             )

@@ -17,25 +17,59 @@ from const import (
     BTN_SHOW_POLL,
     BTN_TOURNAMENTS,
     BTN_YES,
+    BTN_SETTINGS,
+    BTN_ENABLE_NOTIFICATIONS,
+    BTN_DISABLE_NOTIFICATIONS,
+    BTN_ENABLE_ANNOUNCE_OFFERS,
+    BTN_DISABLE_ANNOUNCE_OFFERS,
 )
 
 
 class KeyboardMixin:
-    def main_keyboard(self, is_admin: bool):
+    def main_keyboard(self, is_admin: bool, is_base: bool):
         buttons = [
             [BTN_TOURNAMENTS],
             [BTN_PLAYING_WITH],
         ]
 
-        if is_admin:
+        if is_admin or is_base:
             buttons.extend([
                 [BTN_ADMIN_POLLS],
                 [BTN_ADMIN_GAMES],
-                [BTN_ADMIN_PLAYERS],
             ])
         else:
             buttons.append([BTN_SHOW_POLL])
 
+        if is_admin:
+            buttons.append([BTN_ADMIN_PLAYERS])
+
+        buttons.append([BTN_SETTINGS])
+
+        return ReplyKeyboardMarkup(
+            buttons,
+            resize_keyboard=True,
+        )
+
+    def settings_keyboard(
+        self,
+        enable_notifications: bool,
+        is_base: bool,
+        enable_announce_offers: bool,
+    ):
+        buttons = [[
+            BTN_DISABLE_NOTIFICATIONS
+            if enable_notifications
+            else BTN_ENABLE_NOTIFICATIONS
+        ]]
+
+        if is_base:
+            buttons.append([
+                BTN_DISABLE_ANNOUNCE_OFFERS
+                if enable_announce_offers
+                else BTN_ENABLE_ANNOUNCE_OFFERS
+            ])
+
+        buttons.append([BTN_BACK])
         return ReplyKeyboardMarkup(
             buttons,
             resize_keyboard=True,
