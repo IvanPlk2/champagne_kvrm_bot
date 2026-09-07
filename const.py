@@ -17,6 +17,12 @@ BTN_EDIT_GAME = "Редактировать игру"
 BTN_CREATE_POLL = "Создать опрос"
 BTN_SHOW_POLL = "Показать опрос"
 BTN_LINK_PLAYER = "Привязать к рейтингу"
+BTN_MANAGE_RIGHTS = "Изменить права"
+BTN_PICK_PLAYER_BY_ID = "Указать ID игрока"
+BTN_GRANT_ADMIN = "Дать права админа"
+BTN_REVOKE_ADMIN = "Забрать права админа"
+BTN_ADD_TO_BASE = "Добавить в базу"
+BTN_REMOVE_FROM_BASE = "Исключить из базы"
 BTN_ALL_TOURNAMENTS = "Показать турниры"
 BTN_LEGIONARY = "Создать сообщение для легчата"
 
@@ -51,6 +57,15 @@ STATE_EDIT_DELETE_CONFIRM = "edit_delete_confirm"
 
 STATE_ADD_PLAYER_RATING_ID = "add_player_rating_id"
 STATE_ADD_PLAYER_CONFIRM = "add_player_confirm"
+STATE_RIGHTS_SELECT = "rights_select"
+STATE_RIGHTS_PICK_BASE_ID = "rights_pick_base_id"
+STATE_RIGHTS_ACTIONS = "rights_actions"
+STATE_RIGHTS_CONFIRM = "rights_confirm"
+
+RIGHTS_ACTION_GRANT_ADMIN = "grant_admin"
+RIGHTS_ACTION_REVOKE_ADMIN = "revoke_admin"
+RIGHTS_ACTION_ADD_BASE = "add_base"
+RIGHTS_ACTION_REMOVE_BASE = "remove_base"
 
 PLAYERS_CALLBACK = "players"
 PLACE_CALLBACK = "place"
@@ -59,6 +74,7 @@ ADD_PLAYER_CALLBACK = "add_player"
 LINK_SUGGEST_CALLBACK = "link_s"
 SHOW_POLL_CALLBACK = "show_poll"
 LEGIONARY_CALLBACK = "legionary"
+RIGHTS_CALLBACK = "rights"
 EDIT_GAME_CALLBACK = "edit"
 EDIT_PLACE_CALLBACK = "edit_place"
 EDIT_DATE_CALLBACK = "edit_date"
@@ -77,6 +93,7 @@ ADMIN_CALLBACKS = {
     ADD_PLAYER_CALLBACK,
     LINK_SUGGEST_CALLBACK,
     LEGIONARY_CALLBACK,
+    RIGHTS_CALLBACK,
 }
 
 BASE_STATES = {
@@ -95,6 +112,10 @@ BASE_STATES = {
 ADMIN_STATES = {
     STATE_ADD_PLAYER_RATING_ID,
     STATE_ADD_PLAYER_CONFIRM,
+    STATE_RIGHTS_SELECT,
+    STATE_RIGHTS_PICK_BASE_ID,
+    STATE_RIGHTS_ACTIONS,
+    STATE_RIGHTS_CONFIRM,
 }
 
 ROSTER_MIN_PLAYERS = 6

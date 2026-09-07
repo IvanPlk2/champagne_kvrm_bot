@@ -7,3 +7,6 @@ ANOTHER_CHAT_ID = os.environ["ANOTHER_CHAT_ID"]
 TEAM_NAME = os.environ["TEAM_NAME"]
 TEAM_ID = int(os.environ["TEAM_ID"])
 TEAM_LINK = f"https://rating.pecheny.me/teams/{TEAM_ID}"
+
+_super_admin = os.environ.get("SUPER_ADMIN", "").strip()
+SUPER_ADMIN = int(_super_admin) if _super_admin else None

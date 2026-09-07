@@ -12,6 +12,12 @@ from const import (
     BTN_EDIT_GAME,
     BTN_LEGIONARY,
     BTN_LINK_PLAYER,
+    BTN_MANAGE_RIGHTS,
+    BTN_PICK_PLAYER_BY_ID,
+    BTN_GRANT_ADMIN,
+    BTN_REVOKE_ADMIN,
+    BTN_ADD_TO_BASE,
+    BTN_REMOVE_FROM_BASE,
     BTN_NO,
     BTN_PLAYING_WITH,
     BTN_SHOW_POLL,
@@ -102,8 +108,42 @@ class KeyboardMixin:
             [
                 [BTN_LINK_PLAYER],
                 [BTN_LEGIONARY],
+                [BTN_MANAGE_RIGHTS],
                 [BTN_BACK],
             ],
+            resize_keyboard=True,
+        )
+
+    def rights_select_keyboard(self):
+        return ReplyKeyboardMarkup(
+            [
+                [BTN_PICK_PLAYER_BY_ID],
+                [BTN_BACK],
+            ],
+            resize_keyboard=True,
+        )
+
+    def rights_actions_keyboard(
+        self,
+        is_admin: bool,
+        is_base: bool,
+        protect_admin: bool,
+    ):
+        buttons = []
+        if is_admin:
+            if not protect_admin:
+                buttons.append([BTN_REVOKE_ADMIN])
+        else:
+            buttons.append([BTN_GRANT_ADMIN])
+
+        if is_base:
+            buttons.append([BTN_REMOVE_FROM_BASE])
+        else:
+            buttons.append([BTN_ADD_TO_BASE])
+
+        buttons.append([BTN_BACK])
+        return ReplyKeyboardMarkup(
+            buttons,
             resize_keyboard=True,
         )
 

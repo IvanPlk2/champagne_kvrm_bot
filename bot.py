@@ -32,6 +32,7 @@ from const import (
     BTN_EDIT_GAME,
     BTN_LEGIONARY,
     BTN_LINK_PLAYER,
+    BTN_MANAGE_RIGHTS,
     BTN_PLAYING_WITH,
     BTN_SHOW_POLL,
     BTN_TOURNAMENTS,
@@ -49,6 +50,7 @@ from const import (
     PLACE_CALLBACK,
     PLAYERS_CALLBACK,
     POLL_CALLBACK,
+    RIGHTS_CALLBACK,
     SHOW_POLL_CALLBACK,
     STATE_ADD_GAME_CONFIRM,
     STATE_ADD_GAME_DATE_END,
@@ -59,6 +61,10 @@ from const import (
     STATE_ADD_GAME_SELECT,
     STATE_ADD_PLAYER_CONFIRM,
     STATE_ADD_PLAYER_RATING_ID,
+    STATE_RIGHTS_ACTIONS,
+    STATE_RIGHTS_CONFIRM,
+    STATE_RIGHTS_PICK_BASE_ID,
+    STATE_RIGHTS_SELECT,
     STATE_EDIT_DATE,
     STATE_EDIT_DELETE_CONFIRM,
     STATE_NONE,
@@ -236,6 +242,22 @@ class KvrmBot(
             await self.handle_add_player_confirm(update, context)
             return
 
+        if state == STATE_RIGHTS_SELECT:
+            await self.handle_rights_select(update, context)
+            return
+
+        if state == STATE_RIGHTS_PICK_BASE_ID:
+            await self.handle_rights_pick_base_id(update, context)
+            return
+
+        if state == STATE_RIGHTS_ACTIONS:
+            await self.handle_rights_actions(update, context)
+            return
+
+        if state == STATE_RIGHTS_CONFIRM:
+            await self.handle_rights_confirm(update, context)
+            return
+
         is_admin = self.db.is_admin(tg_id)
         can_manage_games = self.can_manage_games(tg_id)
 
@@ -293,6 +315,10 @@ class KvrmBot(
 
         if is_admin and text == BTN_LINK_PLAYER:
             await self.show_players_for_add(update)
+            return
+
+        if is_admin and text == BTN_MANAGE_RIGHTS:
+            await self.start_manage_rights(update, context)
             return
 
         if can_manage_games and text == BTN_ALL_TOURNAMENTS:
@@ -451,6 +477,14 @@ class KvrmBot(
             await self.create_msg_for_legionary_chat(
                 query, context, int(text)
             )
+            return
+
+        if callback_cmd == RIGHTS_CALLBACK:
+            try:
+                rights_base_id = int(text)
+            except ValueError:
+                return
+            await self.handle_rights_player_callback(query, context, rights_base_id)
             return
 
         if callback_cmd == ANNOUNCE_OFFER_CALLBACK:

@@ -658,6 +658,125 @@ class SqliteDB:
             self.connection.rollback()
             return False
 
+    def get_player_by_base_id(self, base_id: int):
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT
+                        base_id,
+                        tg_id,
+                        name,
+                        surname,
+                        is_admin,
+                        is_base
+                    FROM players
+                    WHERE base_id = ?
+                """, (base_id,))
+                result = cursor.fetchone()
+
+            if result is None:
+                return None
+
+            return {
+                "base_id": result[0],
+                "tg_id": result[1],
+                "name": result[2],
+                "surname": result[3],
+                "is_admin": bool(result[4]),
+                "is_base": bool(result[5]),
+            }
+
+        except Error:
+            self.connection.rollback()
+            return None
+
+    def get_recent_past_game_players(self, games_limit: int = 5) -> list[dict]:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT
+                        p.base_id,
+                        p.tg_id,
+                        p.name,
+                        p.surname,
+                        p.is_admin,
+                        p.is_base
+                    FROM players p
+                    WHERE p.base_id IS NOT NULL
+                      AND p.base_id IN (
+                        SELECT DISTINCT pl.base_id
+                        FROM ready_to_play r
+                        JOIN players pl ON pl.tg_id = r.player
+                        WHERE r.ready = 1
+                          AND pl.base_id IS NOT NULL
+                          AND r.game IN (
+                            SELECT base_id FROM (
+                                SELECT base_id
+                                FROM games
+                                WHERE COALESCE(date_end, date_start) < CURRENT_TIMESTAMP
+                                ORDER BY COALESCE(date_end, date_start) DESC
+                                LIMIT ?
+                            ) recent_games
+                          )
+                      )
+                    ORDER BY p.surname, p.name, p.base_id
+                """, (games_limit,))
+                rows = cursor.fetchall()
+
+            return [
+                {
+                    "base_id": row[0],
+                    "tg_id": row[1],
+                    "name": row[2],
+                    "surname": row[3],
+                    "is_admin": bool(row[4]),
+                    "is_base": bool(row[5]),
+                }
+                for row in rows
+            ]
+
+        except Error:
+            self.connection.rollback()
+            return []
+
+    def set_is_admin_by_base_id(self, base_id: int, value: bool) -> bool:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    UPDATE players
+                    SET is_admin = ?
+                    WHERE base_id = ?
+                """, (1 if value else 0, base_id))
+                updated = cursor.rowcount > 0
+
+            self.connection.commit()
+            return updated
+
+        except Error:
+            self.connection.rollback()
+            return False
+
+    def set_is_base_by_base_id(self, base_id: int, value: bool) -> bool:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    UPDATE players
+                    SET is_base = ?
+                    WHERE base_id = ?
+                """, (1 if value else 0, base_id))
+                updated = cursor.rowcount > 0
+
+            self.connection.commit()
+            return updated
+
+        except Error:
+            self.connection.rollback()
+            return False
+
     def has_voted_in_game(self, tg_id: int, game_base_id: int) -> bool:
         try:
             self.check_connection()

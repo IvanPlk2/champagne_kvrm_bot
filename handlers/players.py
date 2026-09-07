@@ -1,19 +1,35 @@
 import logging
+from typing import Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from config import TEAM_ID, TEAM_LINK, TEAM_NAME
+from config import SUPER_ADMIN, TEAM_ID, TEAM_LINK, TEAM_NAME
 from const import (
     ADD_PLAYER_CALLBACK,
+    BTN_ADD_TO_BASE,
     BTN_BACK,
+    BTN_GRANT_ADMIN,
     BTN_NO,
+    BTN_PICK_PLAYER_BY_ID,
+    BTN_REMOVE_FROM_BASE,
+    BTN_REVOKE_ADMIN,
     BTN_YES,
     LEGIONARY_CALLBACK,
     LINK_SUGGEST_CALLBACK,
     PLAYERS_CALLBACK,
+    RIGHTS_ACTION_ADD_BASE,
+    RIGHTS_ACTION_GRANT_ADMIN,
+    RIGHTS_ACTION_REMOVE_BASE,
+    RIGHTS_ACTION_REVOKE_ADMIN,
+    RIGHTS_CALLBACK,
     STATE_ADD_PLAYER_CONFIRM,
     STATE_ADD_PLAYER_RATING_ID,
+    STATE_NONE,
+    STATE_RIGHTS_ACTIONS,
+    STATE_RIGHTS_CONFIRM,
+    STATE_RIGHTS_PICK_BASE_ID,
+    STATE_RIGHTS_SELECT,
 )
 from utils import get_when_text
 
@@ -343,6 +359,258 @@ class PlayerHandlers:
             )
 
         await self.reset_keyboard_and_state(update, context)
+
+    def _player_rights_label(self, player: dict) -> str:
+        name = " ".join(
+            x for x in [player.get("surname"), player.get("name")]
+            if x
+        ).strip()
+        return name or str(player["base_id"])
+
+    def _is_protected_admin(self, player: dict) -> bool:
+        if SUPER_ADMIN is None:
+            return False
+        return player.get("base_id") == SUPER_ADMIN
+
+    def _rights_players_keyboard(self, players: list[dict]):
+        used_labels: set[str] = set()
+        keyboard = []
+        for player in players:
+            name = self._player_rights_label(player)
+            label = name[:64]
+            if label in used_labels:
+                suffix = f" [{player['base_id']}]"
+                label = (name[: max(0, 64 - len(suffix))] + suffix)[:64]
+            used_labels.add(label)
+            keyboard.append([
+                InlineKeyboardButton(
+                    text=label,
+                    callback_data=f"{RIGHTS_CALLBACK}:{player['base_id']}",
+                )
+            ])
+        return InlineKeyboardMarkup(keyboard) if keyboard else None
+
+    async def start_manage_rights(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        context.user_data["state"] = STATE_RIGHTS_SELECT
+        context.user_data.pop("rights_base_id", None)
+        context.user_data.pop("rights_action", None)
+
+        players = self.db.get_recent_past_game_players(5)
+        keyboard = self._rights_players_keyboard(players)
+
+        await update.message.reply_text(
+            "Выберите игрока или укажите его ID:",
+            reply_markup=self.rights_select_keyboard(),
+        )
+        if keyboard:
+            await update.message.reply_text(
+                "Игроки за 5 последних игр:",
+                reply_markup=keyboard,
+            )
+
+    async def ask_rights_player_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        context.user_data["state"] = STATE_RIGHTS_PICK_BASE_ID
+        await update.message.reply_text(
+            "Введите ID игрока:",
+            reply_markup=self.back_keyboard(),
+        )
+
+    async def show_rights_actions(
+        self,
+        message,
+        context: ContextTypes.DEFAULT_TYPE,
+        base_id: int,
+        text: Optional[str] = None,
+    ):
+        player = self.db.get_player_by_base_id(base_id)
+        if player is None:
+            await message.reply_text("Игрок с таким ID не найден.")
+            return False
+
+        context.user_data["rights_base_id"] = base_id
+        context.user_data["state"] = STATE_RIGHTS_ACTIONS
+        context.user_data.pop("rights_action", None)
+
+        label = self._player_rights_label(player)
+        prompt = text or f"Игрок: {label}"
+        await message.reply_text(
+            prompt,
+            reply_markup=self.rights_actions_keyboard(
+                player["is_admin"],
+                player["is_base"],
+                self._is_protected_admin(player),
+            ),
+        )
+        return True
+
+    def _rights_confirm_prompt(self, action: str, label: str) -> str:
+        if action == RIGHTS_ACTION_GRANT_ADMIN:
+            return f"Дать права админа игроку {label}?"
+        if action == RIGHTS_ACTION_REVOKE_ADMIN:
+            return f"Забрать права админа у игрока {label}?"
+        if action == RIGHTS_ACTION_ADD_BASE:
+            return f"Добавить игрока {label} в базу?"
+        return f"Исключить игрока {label} из базы?"
+
+    async def start_rights_confirm(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        action: str,
+    ):
+        base_id = context.user_data.get("rights_base_id")
+        player = self.db.get_player_by_base_id(base_id) if base_id is not None else None
+        if player is None:
+            await update.message.reply_text("Сначала выберите игрока.")
+            await self.start_manage_rights(update, context)
+            return
+
+        if action == RIGHTS_ACTION_REVOKE_ADMIN and self._is_protected_admin(player):
+            await update.message.reply_text(
+                "Нельзя забрать права админа у суперадмина."
+            )
+            await self.show_rights_actions(update.message, context, player["base_id"])
+            return
+
+        context.user_data["rights_action"] = action
+        context.user_data["state"] = STATE_RIGHTS_CONFIRM
+        await update.message.reply_text(
+            self._rights_confirm_prompt(action, self._player_rights_label(player)),
+            reply_markup=self.yes_no_keyboard(),
+        )
+
+    async def handle_rights_select(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+        text = update.message.text
+        if text == BTN_BACK:
+            context.user_data["state"] = STATE_NONE
+            await self.show_admin_players_menu(update)
+            return
+        if text == BTN_PICK_PLAYER_BY_ID:
+            await self.ask_rights_player_id(update, context)
+            return
+        await update.message.reply_text(
+            "Выберите игрока на клавиатуре или укажите его ID.",
+            reply_markup=self.rights_select_keyboard(),
+        )
+
+    async def handle_rights_pick_base_id(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+        text = (update.message.text or "").strip()
+        if text == BTN_BACK:
+            await self.start_manage_rights(update, context)
+            return
+
+        try:
+            base_id = int(text)
+        except ValueError:
+            await update.message.reply_text("ID игрока должен быть числом.")
+            return
+
+        found = await self.show_rights_actions(update.message, context, base_id)
+        if not found:
+            return
+
+    async def handle_rights_actions(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+        text = update.message.text
+        if text == BTN_BACK:
+            await self.start_manage_rights(update, context)
+            return
+        if text == BTN_GRANT_ADMIN:
+            await self.start_rights_confirm(update, context, RIGHTS_ACTION_GRANT_ADMIN)
+            return
+        if text == BTN_REVOKE_ADMIN:
+            await self.start_rights_confirm(update, context, RIGHTS_ACTION_REVOKE_ADMIN)
+            return
+        if text == BTN_ADD_TO_BASE:
+            await self.start_rights_confirm(update, context, RIGHTS_ACTION_ADD_BASE)
+            return
+        if text == BTN_REMOVE_FROM_BASE:
+            await self.start_rights_confirm(update, context, RIGHTS_ACTION_REMOVE_BASE)
+            return
+
+        await update.message.reply_text("Выберите действие.")
+
+    async def handle_rights_confirm(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+        text = update.message.text
+        base_id = context.user_data.get("rights_base_id")
+        action = context.user_data.get("rights_action")
+
+        if text == BTN_NO or text == BTN_BACK:
+            if base_id is None:
+                await self.start_manage_rights(update, context)
+                return
+            await self.show_rights_actions(update.message, context, base_id)
+            return
+
+        if text != BTN_YES:
+            await update.message.reply_text(
+                "Выберите Да или Нет.",
+                reply_markup=self.yes_no_keyboard(),
+            )
+            return
+
+        player = self.db.get_player_by_base_id(base_id) if base_id is not None else None
+        if player is None or not action:
+            await update.message.reply_text("Сначала выберите игрока.")
+            await self.start_manage_rights(update, context)
+            return
+
+        if action == RIGHTS_ACTION_REVOKE_ADMIN and self._is_protected_admin(player):
+            await update.message.reply_text(
+                "Нельзя забрать права админа у суперадмина."
+            )
+            await self.show_rights_actions(update.message, context, player["base_id"])
+            return
+
+        if action == RIGHTS_ACTION_GRANT_ADMIN:
+            success = self.db.set_is_admin_by_base_id(base_id, True)
+            result_text = "Права админа выданы." if success else "Не удалось изменить права."
+        elif action == RIGHTS_ACTION_REVOKE_ADMIN:
+            success = self.db.set_is_admin_by_base_id(base_id, False)
+            result_text = "Права админа сняты." if success else "Не удалось изменить права."
+        elif action == RIGHTS_ACTION_ADD_BASE:
+            success = self.db.set_is_base_by_base_id(base_id, True)
+            result_text = "Игрок добавлен в базу." if success else "Не удалось изменить права."
+        else:
+            success = self.db.set_is_base_by_base_id(base_id, False)
+            result_text = "Игрок исключён из базы." if success else "Не удалось изменить права."
+
+        logger.info(
+            "%s изменил права игрока %s: %s (%s)",
+            update.effective_user.id,
+            base_id,
+            action,
+            success,
+        )
+        await self.show_rights_actions(
+            update.message,
+            context,
+            base_id,
+            result_text,
+        )
+
+    async def handle_rights_player_callback(
+        self,
+        query,
+        context: ContextTypes.DEFAULT_TYPE,
+        base_id: int,
+    ):
+        await self.show_rights_actions(query.message, context, base_id)
 
     # =================================================================
     # ВСЕ ТУРНИРЫ
