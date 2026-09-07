@@ -72,6 +72,7 @@ from const import (
 )
 from handlers import (
     GameHandlers,
+    GameReminderHandlers,
     KeyboardMixin,
     PlayerHandlers,
     PollHandlers,
@@ -92,6 +93,7 @@ logger = logging.getLogger(__name__)
 class KvrmBot(
     KeyboardMixin,
     GameHandlers,
+    GameReminderHandlers,
     PollHandlers,
     PlayerHandlers,
     RosterHandlers,
@@ -109,6 +111,7 @@ class KvrmBot(
         )
         self.rating_api = RatingAPI()
         self.announces = AnnounceOffers(self.db, self.rating_api)
+        self.announces.schedule_game_reminders = self.schedule_game_reminders
 
         self.application = (
             Application.builder()
@@ -493,6 +496,7 @@ class KvrmBot(
 
     async def _post_init(self, application: Application) -> None:
         self.announces.schedule(application)
+        self.schedule_all_game_reminders(application)
 
     async def _post_shutdown(self, application: Application) -> None:
         await self.rating_api.close()

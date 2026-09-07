@@ -1105,6 +1105,41 @@ class SqliteDB:
             self.connection.rollback()
             return None
 
+    def get_games_for_reminders(self) -> list[dict]:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT
+                        base_id,
+                        name,
+                        place,
+                        date_start,
+                        date_end,
+                        is_festival
+                    FROM games
+                    WHERE date_start IS NOT NULL
+                      AND COALESCE(date_end, date_start) >= CURRENT_DATE
+                    ORDER BY date_start
+                """)
+                rows = cursor.fetchall()
+
+            return [
+                {
+                    "base_id": row[0],
+                    "name": row[1],
+                    "place": row[2],
+                    "date_start": row[3],
+                    "date_end": row[4],
+                    "is_festival": bool(row[5]),
+                }
+                for row in rows
+            ]
+
+        except Error:
+            self.connection.rollback()
+            return []
+
     def set_game_poll(
         self,
         game_id: int,

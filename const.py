@@ -10,6 +10,7 @@ WEEK_ANNOUNCE_PAGE_URL = "https://t.me/s/WeekChgkSPB"
 
 BTN_TOURNAMENTS = "Показать мои турниры"
 BTN_PLAYING_WITH = "Посмотреть с кем играю"
+BTN_VIEW_ROSTER = "Посмотреть состав"
 
 BTN_ADD_GAME = "Добавить игру"
 BTN_ADD_FESTIVAL = "Добавить фестиваль"
@@ -121,6 +122,8 @@ ADMIN_STATES = {
 ROSTER_MIN_PLAYERS = 6
 ROSTER_BROKE_DELAY_SECONDS = 60
 ROSTER_BROKE_JOB_PREFIX = "roster_broke:"
+GAME_REMIND_DAY_JOB_PREFIX = "game_remind_day:"
+GAME_REMIND_HOUR_JOB_PREFIX = "game_remind_hour:"
 
 
 class AnnounceOfferStatus(str, Enum):

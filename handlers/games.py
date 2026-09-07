@@ -509,6 +509,10 @@ class GameHandlers:
             await update.message.reply_text(
                 "Игра добавлена."
             )
+            self.schedule_game_reminders(
+                context.job_queue,
+                self.db.get_game(game_id),
+            )
 
             await self.reset_keyboard_and_state(update, context)
             return
@@ -577,6 +581,10 @@ class GameHandlers:
             await update.message.reply_text(
                 "Фестиваль добавлен."
             )
+            self.schedule_game_reminders(
+                context.job_queue,
+                self.db.get_game(game_id),
+            )
 
         await self.reset_keyboard_and_state(update, context)
 
@@ -615,6 +623,7 @@ class GameHandlers:
         game_id: int,
         text: str,
         players=None,
+        reply_markup=None,
     ):
         if players is None:
             players = self.db.get_ready_players_for_game(game_id)
@@ -622,12 +631,13 @@ class GameHandlers:
             tg_username = player[5]
             tg_id = player[6]
             notif = player[7]
-            if not notif:
+            if not tg_id or not notif:
                 continue
             try:
                 await context.bot.send_message(
                     chat_id=tg_id,
                     text=text,
+                    reply_markup=reply_markup,
                 )
             except Exception:
                 logger.exception(
@@ -920,6 +930,10 @@ class GameHandlers:
             new_when,
         )
         self.db.clear_game_poll(game_id)
+        self.schedule_game_reminders(
+            context.job_queue,
+            self.db.get_game(game_id),
+        )
 
     async def notify_team_festival_dates_changed(
         self,
@@ -1097,6 +1111,7 @@ class GameHandlers:
                     f"Новая дата: {when_text}"
                 ),
             )
+            self.schedule_game_reminders(context.job_queue, game)
 
         await self.reset_keyboard_and_state(update, context)
 
@@ -1149,6 +1164,8 @@ class GameHandlers:
             await update.message.reply_text("Не удалось удалить игру.")
             await self.reset_keyboard_and_state(update, context)
             return
+
+        self.unschedule_game_reminders(context.job_queue, game_id)
 
         await self._delete_game_poll_message(context.bot, game)
         await self.notify_ready_players(

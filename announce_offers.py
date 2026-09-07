@@ -319,7 +319,7 @@ class AnnounceOffers:
             return
 
         if action == "yes":
-            await self.add_game_from_announce_offer(query, offer)
+            await self.add_game_from_announce_offer(query, context, offer)
             return
 
     async def search_announce_offer_tournament(self, query, offer: dict) -> None:
@@ -456,7 +456,7 @@ class AnnounceOffers:
             reply_markup=self._announce_confirm_keyboard(offer["id"]),
         )
 
-    async def add_game_from_announce_offer(self, query, offer: dict) -> None:
+    async def add_game_from_announce_offer(self, query, context, offer: dict) -> None:
         fresh = self.db.get_announce_offer(offer["id"])
         if fresh:
             offer = fresh
@@ -543,3 +543,6 @@ class AnnounceOffers:
             f"{offer['place']}\n"
             f"{when_text}"
         )
+        scheduler = getattr(self, "schedule_game_reminders", None)
+        if callable(scheduler):
+            scheduler(context.job_queue, self.db.get_game(tournament_id))
