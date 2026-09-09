@@ -786,6 +786,10 @@ class SqliteDB:
             return False
 
     def can_view_game_poll(self, tg_id: int, game_base_id: int) -> bool:
+        """
+        Админ и базовый состав видят опрос и состав любой игры.
+        Легионер — только если есть запись в ready_to_play.
+        """
         if self.is_admin(tg_id) or self.is_base(tg_id):
             return True
         return self.has_voted_in_game(tg_id, game_base_id)

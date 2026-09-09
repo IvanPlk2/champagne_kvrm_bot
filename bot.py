@@ -403,17 +403,18 @@ class KvrmBot(
             )
             await query.answer("Недостаточно прав.", show_alert=True)
             return
-        elif callback_cmd == SHOW_POLL_CALLBACK:
+        elif callback_cmd in (SHOW_POLL_CALLBACK, PLAYERS_CALLBACK):
             try:
-                poll_game_id = int(text)
+                game_id = int(text)
             except ValueError:
                 await query.answer()
                 return
-            if not self.db.can_view_game_poll(tg_id, poll_game_id):
+            if not self.db.can_view_game_poll(tg_id, game_id):
                 logger.warning(
-                    "Пользователь %s запросил чужой опрос %s",
+                    "Пользователь %s запросил чужие данные игры %s (%s)",
                     tg_id,
-                    poll_game_id,
+                    game_id,
+                    callback_cmd,
                 )
                 await query.answer("Недостаточно прав.", show_alert=True)
                 return
