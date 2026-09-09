@@ -1,7 +1,7 @@
 import logging
 import httpx
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Callable, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, ContextTypes
@@ -35,9 +35,17 @@ WEEK_ANNOUNCE_JOB_NAME = "week_announces"
 
 
 class AnnounceOffers:
-    def __init__(self, db, rating_api: RatingAPI):
+    def __init__(
+        self,
+        db,
+        rating_api: RatingAPI,
+        schedule_game_reminders: Optional[Callable] = None,
+        create_game_poll: Optional[Callable] = None,
+    ):
         self.db: SqliteDB = db
         self.rating_api: RatingAPI = rating_api
+        self.schedule_game_reminders = schedule_game_reminders
+        self.create_game_poll = create_game_poll
         self.httpx_client = httpx.AsyncClient(
             timeout=10
         )
@@ -83,6 +91,20 @@ class AnnounceOffers:
                 InlineKeyboardButton(
                     "Да",
                     callback_data=f"{ANNOUNCE_OFFER_CALLBACK}:yes:{offer_id}",
+                ),
+            ]
+        ])
+
+    def _announce_poll_keyboard(self, offer_id: int) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "Да",
+                    callback_data=f"{ANNOUNCE_OFFER_CALLBACK}:poll_yes:{offer_id}",
+                ),
+                InlineKeyboardButton(
+                    "Нет",
+                    callback_data=f"{ANNOUNCE_OFFER_CALLBACK}:poll_no:{offer_id}",
                 ),
             ]
         ])
@@ -322,6 +344,14 @@ class AnnounceOffers:
             await self.add_game_from_announce_offer(query, context, offer)
             return
 
+        if action == "poll_yes":
+            await self.create_poll_from_announce_offer(query, context, offer)
+            return
+
+        if action == "poll_no":
+            await query.edit_message_text("Опрос не создан.")
+            return
+
     async def search_announce_offer_tournament(self, query, offer: dict) -> None:
         if offer["status"] == AnnounceOfferStatus.ADDED:
             await query.edit_message_text("Игра уже добавлена.")
@@ -543,6 +573,21 @@ class AnnounceOffers:
             f"{offer['place']}\n"
             f"{when_text}"
         )
-        scheduler = getattr(self, "schedule_game_reminders", None)
-        if callable(scheduler):
-            scheduler(context.job_queue, self.db.get_game(tournament_id))
+        game = self.db.get_game(tournament_id)
+        if self.schedule_game_reminders and game:
+            self.schedule_game_reminders(context.job_queue, game)
+        await query.message.reply_text(
+            "Создать опрос?",
+            reply_markup=self._announce_poll_keyboard(offer["id"]),
+        )
+
+    async def create_poll_from_announce_offer(self, query, context, offer: dict) -> None:
+        tournament_id = offer.get("tournament_id")
+        game = self.db.get_game(tournament_id) if tournament_id is not None else None
+        if not self.create_game_poll or not game:
+            await query.edit_message_text("Не удалось создать опрос.")
+            return
+        created = await self.create_game_poll(context.bot, game)
+        await query.edit_message_text(
+            "Опрос создан." if created else "Не удалось создать опрос."
+        )

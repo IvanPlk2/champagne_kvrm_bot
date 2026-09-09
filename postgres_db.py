@@ -1117,6 +1117,29 @@ class PostgresDB:
             self.connection.rollback()
             return []
 
+    def get_games_needing_roster_broke_check(self, min_players: int) -> list[int]:
+        try:
+            self.check_connection()
+            with self.connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT g.base_id
+                    FROM games g
+                    WHERE g.team_notified = TRUE
+                      AND COALESCE(g.date_end, g.date_start) >= CURRENT_DATE
+                      AND (
+                          SELECT COUNT(*)
+                          FROM ready_to_play r
+                          WHERE r.game = g.base_id
+                            AND r.ready = TRUE
+                      ) < %s
+                    ORDER BY g.date_start
+                """, (min_players,))
+                return [row[0] for row in cursor.fetchall()]
+
+        except Error:
+            self.connection.rollback()
+            return []
+
     def set_game_poll(
         self,
         game_id: int,

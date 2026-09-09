@@ -88,16 +88,29 @@ class PollHandlers:
                 "Опрос для этой игры уже создан."
             )
             return
-        # -------------------------------------------------------------
-        # Создаём новый опрос
-        # -------------------------------------------------------------
 
+        created = await self.send_game_poll(context.bot, game)
+        if not created:
+            await query.message.reply_text(
+                "Не удалось создать опрос."
+            )
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        await query.message.reply_text("Опрос создан.")
+
+    async def send_game_poll(self, bot, game: dict) -> bool:
+        if not game:
+            return False
+        if game.get("poll") is not None and game.get("poll_id") is not None:
+            return False
+
+        game_id = game["base_id"]
         try:
-
             when_text = get_when_text(
-                game['date_start'],
-                game['date_end'],
-                game['is_festival'],
+                game["date_start"],
+                game["date_end"],
+                game["is_festival"],
             )
             question_parts = [game["name"]]
             difficulty_level = game.get("difficulty_level")
@@ -107,9 +120,9 @@ class PollHandlers:
                 question_parts.append(game["place"])
             if when_text:
                 question_parts.append(when_text)
-            question = '. '.join(question_parts)
+            question = ". ".join(question_parts)
 
-            message = await context.bot.send_poll(
+            message = await bot.send_poll(
                 chat_id=TEAM_CHAT_ID,
                 question=question,
                 options=[
@@ -123,16 +136,11 @@ class PollHandlers:
                 allows_revoting=True,
             )
         except Exception:
-
-            await query.message.reply_text(
-                "Не удалось создать опрос."
+            logger.exception(
+                "Не удалось создать опрос для игры %s",
+                game_id,
             )
-            await self.reset_keyboard_and_state(update, context)
-            return
-
-        await query.message.reply_text(
-            "Опрос создан."
-        )
+            return False
 
         self.db.set_game_poll(
             game_id=game_id,
@@ -141,7 +149,7 @@ class PollHandlers:
         )
 
         try:
-            await context.bot.pin_chat_message(
+            await bot.pin_chat_message(
                 chat_id=TEAM_CHAT_ID,
                 message_id=message.message_id,
                 disable_notification=True,
@@ -151,6 +159,7 @@ class PollHandlers:
                 "Не удалось закрепить опрос для игры %s",
                 game_id,
             )
+        return True
 
     # ===========================================================
     # Показать опрос

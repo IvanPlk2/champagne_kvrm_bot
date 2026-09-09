@@ -51,6 +51,7 @@ STATE_ADD_GAME_CONFIRM = "add_game_confirm"
 STATE_ADD_GAME_PLACE = "add_game_place"
 STATE_ADD_GAME_DATE_START = "add_game_date_start"
 STATE_ADD_GAME_DATE_END = "add_game_date_end"
+STATE_ADD_GAME_CREATE_POLL = "add_game_create_poll"
 
 STATE_UPDATE_PLACE = "update_place"
 STATE_EDIT_DATE = "edit_date"
@@ -105,6 +106,7 @@ BASE_STATES = {
     STATE_ADD_GAME_PLACE,
     STATE_ADD_GAME_DATE_START,
     STATE_ADD_GAME_DATE_END,
+    STATE_ADD_GAME_CREATE_POLL,
     STATE_UPDATE_PLACE,
     STATE_EDIT_DATE,
     STATE_EDIT_DELETE_CONFIRM,
@@ -124,6 +126,8 @@ ROSTER_BROKE_DELAY_SECONDS = 60
 ROSTER_BROKE_JOB_PREFIX = "roster_broke:"
 GAME_REMIND_DAY_JOB_PREFIX = "game_remind_day:"
 GAME_REMIND_HOUR_JOB_PREFIX = "game_remind_hour:"
+
+HINT_RESET_KEYBOARD = "Сбросить клавиатуру можно командой /start."
 
 
 class AnnounceOfferStatus(str, Enum):

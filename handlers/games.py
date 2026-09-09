@@ -23,6 +23,7 @@ from const import (
     STATE_ADD_GAME_PLACE,
     STATE_ADD_GAME_SEARCH_NAME,
     STATE_ADD_GAME_SELECT,
+    STATE_ADD_GAME_CREATE_POLL,
     STATE_EDIT_DATE,
     STATE_EDIT_DELETE_CONFIRM,
     STATE_NONE,
@@ -34,6 +35,7 @@ from utils import (
     get_when_text,
     is_datetime_in_rating_window,
     to_msk_naive,
+    with_start_hint,
 )
 
 logger = logging.getLogger(__name__)
@@ -208,7 +210,7 @@ class GameHandlers:
 
         if game_id is None:
             await update.message.reply_text(
-                "Выберите турнир с клавиатуры.",
+                with_start_hint("Выберите турнир с клавиатуры."),
                 reply_markup=self.add_game_select_keyboard(
                     list(choices),
                     extra_button,
@@ -298,7 +300,7 @@ class GameHandlers:
             game_id = int(update.message.text)
         except ValueError:
             await update.message.reply_text(
-                "ID должен быть числом. Введите id:"
+                with_start_hint("ID должен быть числом. Введите id:")
             )
             return
 
@@ -386,7 +388,7 @@ class GameHandlers:
 
         if text != BTN_YES:
             await update.message.reply_text(
-                "Выберите Да или Нет.",
+                with_start_hint("Выберите Да или Нет."),
                 reply_markup=self.yes_no_keyboard(),
             )
             return
@@ -473,8 +475,10 @@ class GameHandlers:
                 )
             except ValueError:
                 await update.message.reply_text(
-                    "Неверный формат даты.\n"
-                    "Используйте ДД.ММ.ГГ ЧЧ:ММ"
+                    with_start_hint(
+                        "Неверный формат даты.\n"
+                        "Используйте ДД.ММ.ГГ ЧЧ:ММ"
+                    )
                 )
                 return
 
@@ -487,9 +491,11 @@ class GameHandlers:
             ):
                 window = format_msk_window(rating_start, rating_end) or "не указан"
                 await update.message.reply_text(
-                    "Введённая дата не входит в сроки проведения турнира "
-                    f"({window}, GMT+3).\n"
-                    "Исправьте дату."
+                    with_start_hint(
+                        "Введённая дата не входит в сроки проведения турнира "
+                        f"({window}, GMT+3).\n"
+                        "Исправьте дату."
+                    )
                 )
                 return
 
@@ -513,8 +519,7 @@ class GameHandlers:
                 context.job_queue,
                 self.db.get_game(game_id),
             )
-
-            await self.reset_keyboard_and_state(update, context)
+            await self.ask_create_poll_after_add(update, context, game_id)
             return
 
         await self.save_festival_from_rating(update, context)
@@ -577,14 +582,55 @@ class GameHandlers:
             await update.message.reply_text(
                 "Не удалось добавить фестиваль."
             )
-        else:
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        await update.message.reply_text(
+            "Фестиваль добавлен."
+        )
+        self.schedule_game_reminders(
+            context.job_queue,
+            self.db.get_game(game_id),
+        )
+        await self.ask_create_poll_after_add(update, context, game_id)
+
+    async def ask_create_poll_after_add(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        game_id: int,
+    ):
+        context.user_data["poll_game_id"] = game_id
+        context.user_data["state"] = STATE_ADD_GAME_CREATE_POLL
+        await update.message.reply_text(
+            "Создать опрос?",
+            reply_markup=self.yes_no_keyboard(),
+        )
+
+    async def handle_add_game_create_poll(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+        text = update.message.text
+
+        if text == BTN_NO or text == BTN_BACK:
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        if text != BTN_YES:
             await update.message.reply_text(
-                "Фестиваль добавлен."
+                with_start_hint("Выберите Да или Нет."),
+                reply_markup=self.yes_no_keyboard(),
             )
-            self.schedule_game_reminders(
-                context.job_queue,
-                self.db.get_game(game_id),
-            )
+            return
+
+        game_id = context.user_data.get("poll_game_id")
+        game = self.db.get_game(game_id) if game_id is not None else None
+        if await self.send_game_poll(context.bot, game):
+            await update.message.reply_text("Опрос создан.")
+        else:
+            await update.message.reply_text("Не удалось создать опрос.")
 
         await self.reset_keyboard_and_state(update, context)
 
@@ -1088,7 +1134,7 @@ class GameHandlers:
             context.user_data.get("rating_date_start"),
             context.user_data.get("rating_date_end"),
         ) or "не указан"
-        return (
+        return with_start_hint(
             "Введённая дата не входит в сроки проведения турнира "
             f"({window}, GMT+3).\n"
             "Исправьте дату."
@@ -1115,8 +1161,10 @@ class GameHandlers:
             )
         except ValueError:
             await update.message.reply_text(
-                "Неверный формат даты.\n"
-                "Используйте ДД.ММ.ГГ ЧЧ:ММ"
+                with_start_hint(
+                    "Неверный формат даты.\n"
+                    "Используйте ДД.ММ.ГГ ЧЧ:ММ"
+                )
             )
             return
 
@@ -1211,7 +1259,7 @@ class GameHandlers:
 
         if text != BTN_YES:
             await update.message.reply_text(
-                "Выберите Да или Нет.",
+                with_start_hint("Выберите Да или Нет."),
                 reply_markup=self.yes_no_keyboard(),
             )
             return

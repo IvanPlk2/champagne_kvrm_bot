@@ -3,7 +3,7 @@ import re
 from datetime import date, datetime
 from typing import Optional
 
-from const import MSK_TZ, UTC_TZ
+from const import HINT_RESET_KEYBOARD, MSK_TZ, UTC_TZ
 
 
 def add_months(value: date, months: int) -> date:
@@ -98,3 +98,7 @@ def normalize_name(value: str) -> str:
     text = text.replace("–", "-").replace("—", "-")
     text = re.sub(r"\s+", " ", text)
     return text
+
+
+def with_start_hint(text: str) -> str:
+    return f"{text}\n\n{HINT_RESET_KEYBOARD}"

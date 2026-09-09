@@ -55,6 +55,7 @@ from const import (
     STATE_ADD_GAME_CONFIRM,
     STATE_ADD_GAME_DATE_END,
     STATE_ADD_GAME_DATE_START,
+    STATE_ADD_GAME_CREATE_POLL,
     STATE_ADD_GAME_ID,
     STATE_ADD_GAME_PLACE,
     STATE_ADD_GAME_SEARCH_NAME,
@@ -81,6 +82,7 @@ from handlers import (
 )
 from rating_api import RatingAPI
 from sqlite_db import SqliteDB
+from utils import with_start_hint
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -106,8 +108,12 @@ class KvrmBot(
             database=SQLITE_DB_PATH
         )
         self.rating_api = RatingAPI()
-        self.announces = AnnounceOffers(self.db, self.rating_api)
-        self.announces.schedule_game_reminders = self.schedule_game_reminders
+        self.announces = AnnounceOffers(
+            self.db,
+            self.rating_api,
+            schedule_game_reminders=self.schedule_game_reminders,
+            create_game_poll=self.send_game_poll,
+        )
 
         self.application = (
             Application.builder()
@@ -221,6 +227,10 @@ class KvrmBot(
             await self.handle_add_game_date_end(update, context)
             return
 
+        if state == STATE_ADD_GAME_CREATE_POLL:
+            await self.handle_add_game_create_poll(update, context)
+            return
+
         if state == STATE_UPDATE_PLACE:
             await self.handle_update_place(update, context)
             return
@@ -332,7 +342,9 @@ class KvrmBot(
             await self.show_main_menu(update)
             return
 
-        await update.message.reply_text("Неизвестная команда.")
+        await update.message.reply_text(
+            with_start_hint("Неизвестная команда.")
+        )
 
     def can_manage_games(self, tg_id: int) -> bool:
         return self.db.is_admin(tg_id) or self.db.is_base(tg_id)
@@ -494,6 +506,7 @@ class KvrmBot(
     async def _post_init(self, application: Application) -> None:
         self.announces.schedule(application)
         self.schedule_all_game_reminders(application)
+        self.schedule_pending_roster_broke_checks(application)
 
     async def _post_shutdown(self, application: Application) -> None:
         await self.rating_api.close()

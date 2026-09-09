@@ -31,7 +31,7 @@ from const import (
     STATE_RIGHTS_PICK_BASE_ID,
     STATE_RIGHTS_SELECT,
 )
-from utils import get_when_text
+from utils import get_when_text, with_start_hint
 
 logger = logging.getLogger(__name__)
 
@@ -293,7 +293,7 @@ class PlayerHandlers:
             rating_id = int(text)
         except ValueError:
             await update.message.reply_text(
-                "ID рейтинга должен быть числом."
+                with_start_hint("ID рейтинга должен быть числом.")
             )
             return
 
@@ -329,7 +329,7 @@ class PlayerHandlers:
 
         if text != BTN_YES:
             await update.message.reply_text(
-                "Выберите Да или Нет.",
+                with_start_hint("Выберите Да или Нет."),
                 reply_markup=self.yes_no_keyboard(),
             )
             return
@@ -493,7 +493,9 @@ class PlayerHandlers:
             await self.ask_rights_player_id(update, context)
             return
         await update.message.reply_text(
-            "Выберите игрока на клавиатуре или укажите его ID.",
+            with_start_hint(
+                "Выберите игрока на клавиатуре или укажите его ID."
+            ),
             reply_markup=self.rights_select_keyboard(),
         )
 
@@ -510,7 +512,9 @@ class PlayerHandlers:
         try:
             base_id = int(text)
         except ValueError:
-            await update.message.reply_text("ID игрока должен быть числом.")
+            await update.message.reply_text(
+                with_start_hint("ID игрока должен быть числом.")
+            )
             return
 
         found = await self.show_rights_actions(update.message, context, base_id)
@@ -539,7 +543,9 @@ class PlayerHandlers:
             await self.start_rights_confirm(update, context, RIGHTS_ACTION_REMOVE_BASE)
             return
 
-        await update.message.reply_text("Выберите действие.")
+        await update.message.reply_text(
+            with_start_hint("Выберите действие.")
+        )
 
     async def handle_rights_confirm(
         self,
@@ -559,7 +565,7 @@ class PlayerHandlers:
 
         if text != BTN_YES:
             await update.message.reply_text(
-                "Выберите Да или Нет.",
+                with_start_hint("Выберите Да или Нет."),
                 reply_markup=self.yes_no_keyboard(),
             )
             return

@@ -1,7 +1,7 @@
 import logging
 
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import Application, ContextTypes
 
 from config import TEAM_CHAT_ID
 from const import (
@@ -77,17 +77,33 @@ class RosterHandlers:
             and game["team_notified"]
             and ready_count < ROSTER_MIN_PLAYERS
         ):
-            self._schedule_roster_broke_check(context, game_id)
+            self._schedule_roster_broke_check(context.job_queue, game_id)
 
     def _roster_broke_job_name(self, game_id: int) -> str:
         return f"{ROSTER_BROKE_JOB_PREFIX}{game_id}"
 
+    def schedule_pending_roster_broke_checks(
+        self,
+        application: Application,
+    ) -> None:
+        job_queue = application.job_queue
+        if job_queue is None:
+            logger.error(
+                "JobQueue недоступен, проверка разбора состава не запланирована"
+            )
+            return
+
+        for game_id in self.db.get_games_needing_roster_broke_check(
+            ROSTER_MIN_PLAYERS
+        ):
+            self._schedule_roster_broke_check(job_queue, game_id, when=0)
+
     def _schedule_roster_broke_check(
         self,
-        context: ContextTypes.DEFAULT_TYPE,
+        job_queue,
         game_id: int,
+        when: int = ROSTER_BROKE_DELAY_SECONDS,
     ) -> None:
-        job_queue = context.job_queue
         if job_queue is None:
             logger.error("JobQueue недоступен, проверка разбора состава не запланирована")
             return
@@ -98,7 +114,7 @@ class RosterHandlers:
 
         job_queue.run_once(
             self.check_roster_broke,
-            when=ROSTER_BROKE_DELAY_SECONDS,
+            when=when,
             data=game_id,
             name=job_name,
         )
