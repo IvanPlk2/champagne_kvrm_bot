@@ -26,17 +26,9 @@ sqlite3.register_converter("TIMESTAMP", _convert_timestamp)
 class SqliteDB:
     def __init__(
         self,
-        host: str,
-        port: int,
         database: str,
-        user: str,
-        password: str
     ):
-        self.host = host
-        self.port = port
         self.database = database
-        self.user = user
-        self.password = password
         self.connection = None
         self._connect()
         self._create_tables()
@@ -48,7 +40,6 @@ class SqliteDB:
             except Exception:
                 pass
 
-        # host/port/user/password сохранены для совместимости API;
         # database — путь к файлу SQLite (или ":memory:").
         self.connection = sqlite3.connect(
             self.database,

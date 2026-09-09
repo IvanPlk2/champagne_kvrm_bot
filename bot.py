@@ -103,11 +103,7 @@ class KvrmBot(
         self.api_key = API_KEY
         os.makedirs(os.path.dirname(SQLITE_DB_PATH), exist_ok=True)
         self.db = SqliteDB(
-            host="",
-            port=0,
-            database=SQLITE_DB_PATH,
-            user="",
-            password="",
+            database=SQLITE_DB_PATH
         )
         self.rating_api = RatingAPI()
         self.announces = AnnounceOffers(self.db, self.rating_api)

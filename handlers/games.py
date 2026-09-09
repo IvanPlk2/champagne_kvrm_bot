@@ -617,6 +617,33 @@ class GameHandlers:
             return None
         return rating_data.get("date_start"), rating_data.get("date_end")
 
+    def _ready_player_label(self, player) -> str:
+        base_id, surname, name, _patronymic, _flag, tg_username, tg_id, _notif = player
+        full_name = " ".join(
+            part for part in (surname, name) if part
+        ).strip()
+        if full_name:
+            return full_name
+        if tg_username:
+            return str(tg_username)
+        if base_id:
+            return str(base_id)
+        if tg_id:
+            return str(tg_id)
+        return "игрок"
+
+    def _notify_result_text(self, success_text: str, failures) -> str:
+        if not failures:
+            return success_text
+        lines = [success_text, "", "Не удалось уведомить:"]
+        for name, reason in failures:
+            lines.append(f"{name} — {reason}")
+        return "\n".join(lines)
+
+    def _changer_tg_id(self, update: Update):
+        user = update.effective_user
+        return user.id if user else None
+
     async def notify_ready_players(
         self,
         context: ContextTypes.DEFAULT_TYPE,
@@ -624,14 +651,29 @@ class GameHandlers:
         text: str,
         players=None,
         reply_markup=None,
+        skip_tg_id=None,
+        collect_failures: bool = False,
     ):
         if players is None:
             players = self.db.get_ready_players_for_game(game_id)
+        failures = []
         for player in players:
             tg_username = player[5]
             tg_id = player[6]
             notif = player[7]
-            if not tg_id or not notif:
+            if skip_tg_id is not None and tg_id == skip_tg_id:
+                continue
+            if not notif:
+                if collect_failures:
+                    failures.append(
+                        (self._ready_player_label(player), "уведомления отключены")
+                    )
+                continue
+            if not tg_id:
+                if collect_failures:
+                    failures.append(
+                        (self._ready_player_label(player), "ошибка отправки")
+                    )
                 continue
             try:
                 await context.bot.send_message(
@@ -644,6 +686,11 @@ class GameHandlers:
                     "Не удалось отправить уведомление игроку %s.",
                     tg_username,
                 )
+                if collect_failures:
+                    failures.append(
+                        (self._ready_player_label(player), "ошибка отправки")
+                    )
+        return failures
 
     async def _delete_game_poll_message(self, bot, game: dict) -> None:
         message_id = game.get("poll")
@@ -760,11 +807,6 @@ class GameHandlers:
         )
 
         if success:
-            await update.message.reply_text(
-                "Место обновлено.",
-                reply_markup=ReplyKeyboardRemove(),
-            )
-
             logger.info(
                 "%s изменил место игры %s",
                 update.effective_user.id,
@@ -772,15 +814,23 @@ class GameHandlers:
             )
 
             game = self.db.get_game(game_id)
+            failures = []
             if game:
-                await self.notify_ready_players(
+                failures = await self.notify_ready_players(
                     context,
                     game_id,
                     (
                         f"Место проведения игры «{game['name']}» изменено.\n"
                         f"Новое место: {new_place}"
                     ),
+                    skip_tg_id=self._changer_tg_id(update),
+                    collect_failures=True,
                 )
+
+            await update.message.reply_text(
+                self._notify_result_text("Место обновлено.", failures),
+                reply_markup=ReplyKeyboardRemove(),
+            )
 
         else:
             await update.message.reply_text(
@@ -914,13 +964,26 @@ class GameHandlers:
             await query.message.reply_text("Не удалось обновить дату.")
             return
 
-        await query.message.reply_text(
-            f"Дата обновлена: {new_when}."
-        )
         logger.info(
             "%s обновил даты фестиваля %s",
             query.from_user.id if query.from_user else "?",
             game_id,
+        )
+
+        name = game.get("name") or str(game_id)
+        failures = await self.notify_ready_players(
+            context,
+            game_id,
+            (
+                f"Даты фестиваля «{name}» изменились.\n"
+                f"Было: {old_when or 'не указано'}\n"
+                f"Стало: {new_when or 'не указано'}"
+            ),
+            skip_tg_id=query.from_user.id if query.from_user else None,
+            collect_failures=True,
+        )
+        await query.message.reply_text(
+            self._notify_result_text(f"Дата обновлена: {new_when}.", failures)
         )
 
         await self.notify_team_festival_dates_changed(
@@ -1095,24 +1158,29 @@ class GameHandlers:
                 game["is_festival"],
             )
 
-        await update.message.reply_text("Дата обновлена.")
         logger.info(
             "%s изменил дату игры %s",
             update.effective_user.id,
             game_id,
         )
 
+        failures = []
         if game and when_text:
-            await self.notify_ready_players(
+            failures = await self.notify_ready_players(
                 context,
                 game_id,
                 (
                     f"Дата проведения игры «{game['name']}» изменена.\n"
                     f"Новая дата: {when_text}"
                 ),
+                skip_tg_id=self._changer_tg_id(update),
+                collect_failures=True,
             )
             self.schedule_game_reminders(context.job_queue, game)
 
+        await update.message.reply_text(
+            self._notify_result_text("Дата обновлена.", failures)
+        )
         await self.reset_keyboard_and_state(update, context)
 
     async def start_edit_delete(self, query, context, game_id: int):
@@ -1168,11 +1236,13 @@ class GameHandlers:
         self.unschedule_game_reminders(context.job_queue, game_id)
 
         await self._delete_game_poll_message(context.bot, game)
-        await self.notify_ready_players(
+        failures = await self.notify_ready_players(
             context,
             game_id,
             notify_text,
             players=players,
+            skip_tg_id=self._changer_tg_id(update),
+            collect_failures=True,
         )
 
         logger.info(
@@ -1180,5 +1250,7 @@ class GameHandlers:
             update.effective_user.id,
             game_id,
         )
-        await update.message.reply_text("Игра удалена.")
+        await update.message.reply_text(
+            self._notify_result_text("Игра удалена.", failures)
+        )
         await self.reset_keyboard_and_state(update, context)
