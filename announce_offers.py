@@ -587,7 +587,9 @@ class AnnounceOffers:
         if not self.create_game_poll or not game:
             await query.edit_message_text("Не удалось создать опрос.")
             return
-        created = await self.create_game_poll(context.bot, game)
+        created = await self.create_game_poll(
+            context.bot, game, context.job_queue
+        )
         await query.edit_message_text(
             "Опрос создан." if created else "Не удалось создать опрос."
         )

@@ -1135,6 +1135,40 @@ class SqliteDB:
             self.connection.rollback()
             return []
 
+    def get_games_with_polls(self) -> list[dict]:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT
+                        base_id,
+                        name,
+                        poll,
+                        date_start,
+                        date_end,
+                        is_festival
+                    FROM games
+                    WHERE poll IS NOT NULL
+                    ORDER BY date_start
+                """)
+                rows = cursor.fetchall()
+
+            return [
+                {
+                    "base_id": row[0],
+                    "name": row[1],
+                    "poll": row[2],
+                    "date_start": row[3],
+                    "date_end": row[4],
+                    "is_festival": bool(row[5]),
+                }
+                for row in rows
+            ]
+
+        except Error:
+            self.connection.rollback()
+            return []
+
     def get_games_needing_roster_broke_check(self, min_players: int) -> list[int]:
         try:
             self.check_connection()

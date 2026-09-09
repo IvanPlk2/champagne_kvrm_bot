@@ -48,6 +48,8 @@ class KeyboardMixin:
 
         if is_admin:
             buttons.append([BTN_ADMIN_PLAYERS])
+        elif is_base:
+            buttons.append([BTN_LEGIONARY])
 
         buttons.append([BTN_SETTINGS])
 
@@ -107,8 +109,8 @@ class KeyboardMixin:
         return ReplyKeyboardMarkup(
             [
                 [BTN_LINK_PLAYER],
-                [BTN_LEGIONARY],
                 [BTN_MANAGE_RIGHTS],
+                [BTN_LEGIONARY],
                 [BTN_BACK],
             ],
             resize_keyboard=True,

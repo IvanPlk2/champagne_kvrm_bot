@@ -211,10 +211,10 @@ class KvrmBot(
             ((BTN_EDIT_GAME,), ACCESS_GAMES, lambda: self.show_games_for_edit(update)),
             ((BTN_CREATE_POLL,), ACCESS_GAMES, lambda: self.show_games_for_poll(update)),
             ((BTN_ALL_TOURNAMENTS,), ACCESS_GAMES, lambda: self.show_tournaments(update)),
+            ((BTN_LEGIONARY,), ACCESS_GAMES, lambda: self.legionary(update)),
             ((BTN_ADMIN_PLAYERS,), ACCESS_ADMIN, lambda: self.show_admin_players_menu(update)),
             ((BTN_LINK_PLAYER,), ACCESS_ADMIN, lambda: self.show_players_for_add(update)),
             ((BTN_MANAGE_RIGHTS,), ACCESS_ADMIN, lambda: self.start_manage_rights(update, context)),
-            ((BTN_LEGIONARY,), ACCESS_ADMIN, lambda: self.legionary(update)),
         )
 
     async def _deny_state_access(
@@ -421,6 +421,7 @@ class KvrmBot(
         self.announces.schedule(application)
         self.schedule_all_game_reminders(application)
         self.schedule_pending_roster_broke_checks(application)
+        self.schedule_all_poll_unpins(application)
 
     async def _post_shutdown(self, application: Application) -> None:
         await self.rating_api.close()

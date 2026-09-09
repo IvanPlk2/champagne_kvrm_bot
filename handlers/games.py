@@ -627,7 +627,7 @@ class GameHandlers:
 
         game_id = context.user_data.get("poll_game_id")
         game = self.db.get_game(game_id) if game_id is not None else None
-        if await self.send_game_poll(context.bot, game):
+        if await self.send_game_poll(context.bot, game, context.job_queue):
             await update.message.reply_text("Опрос создан.")
         else:
             await update.message.reply_text("Не удалось создать опрос.")
@@ -742,6 +742,7 @@ class GameHandlers:
         message_id = game.get("poll")
         if message_id is None:
             return
+        await self.unpin_game_poll(bot, game)
         for chat_id in (TEAM_CHAT_ID, ANOTHER_CHAT_ID):
             try:
                 await bot.delete_message(
@@ -1038,6 +1039,8 @@ class GameHandlers:
             old_when,
             new_when,
         )
+        await self.unpin_game_poll(context.bot, game)
+        self.unschedule_poll_unpin(context.job_queue, game_id)
         self.db.clear_game_poll(game_id)
         self.schedule_game_reminders(
             context.job_queue,
@@ -1225,6 +1228,7 @@ class GameHandlers:
                 collect_failures=True,
             )
             self.schedule_game_reminders(context.job_queue, game)
+            self.schedule_poll_unpin(context.job_queue, game)
 
         await update.message.reply_text(
             self._notify_result_text("Дата обновлена.", failures)
@@ -1282,6 +1286,7 @@ class GameHandlers:
             return
 
         self.unschedule_game_reminders(context.job_queue, game_id)
+        self.unschedule_poll_unpin(context.job_queue, game_id)
 
         await self._delete_game_poll_message(context.bot, game)
         failures = await self.notify_ready_players(
