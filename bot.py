@@ -15,6 +15,8 @@ from telegram.ext import (
 from announce_offers import AnnounceOffers
 from config import API_KEY, SQLITE_DB_PATH
 from const import (
+    ACCESS_ADMIN,
+    ACCESS_GAMES,
     ADD_PLAYER_CALLBACK,
     ADMIN_CALLBACKS,
     ADMIN_STATES,
@@ -164,6 +166,74 @@ class KvrmBot(
         context.user_data["state"] = STATE_NONE
         await self.show_main_menu(update)
 
+    def _state_handlers(self):
+        return {
+            STATE_ADD_GAME_SELECT: self.handle_add_game_select,
+            STATE_ADD_GAME_SEARCH_NAME: self.handle_add_game_search_name,
+            STATE_ADD_GAME_ID: self.handle_add_game_id,
+            STATE_ADD_GAME_CONFIRM: self.handle_add_game_confirm,
+            STATE_ADD_GAME_PLACE: self.handle_add_game_place,
+            STATE_ADD_GAME_DATE_START: self.handle_add_game_date_start,
+            STATE_ADD_GAME_DATE_END: self.handle_add_game_date_end,
+            STATE_ADD_GAME_CREATE_POLL: self.handle_add_game_create_poll,
+            STATE_UPDATE_PLACE: self.handle_update_place,
+            STATE_EDIT_DATE: self.handle_edit_date,
+            STATE_EDIT_DELETE_CONFIRM: self.handle_edit_delete_confirm,
+            STATE_ADD_PLAYER_RATING_ID: self.handle_add_player_rating_id,
+            STATE_ADD_PLAYER_CONFIRM: self.handle_add_player_confirm,
+            STATE_RIGHTS_SELECT: self.handle_rights_select,
+            STATE_RIGHTS_PICK_BASE_ID: self.handle_rights_pick_base_id,
+            STATE_RIGHTS_ACTIONS: self.handle_rights_actions,
+            STATE_RIGHTS_CONFIRM: self.handle_rights_confirm,
+        }
+
+    def _menu_actions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        return (
+            ((BTN_TOURNAMENTS,), None, lambda: self.show_my_tournaments(update)),
+            ((BTN_PLAYING_WITH,), None, lambda: self.show_tournaments_for_players(update)),
+            ((BTN_SETTINGS,), None, lambda: self.show_settings_menu(update)),
+            (
+                (BTN_ENABLE_NOTIFICATIONS, BTN_DISABLE_NOTIFICATIONS),
+                None,
+                lambda: self.handle_toggle_notifications(update),
+            ),
+            (
+                (BTN_ENABLE_ANNOUNCE_OFFERS, BTN_DISABLE_ANNOUNCE_OFFERS),
+                None,
+                lambda: self.handle_toggle_announce_offers(update),
+            ),
+            ((BTN_SHOW_POLL,), None, lambda: self.show_games_with_polls(update)),
+            ((BTN_BACK,), None, lambda: self.show_main_menu(update)),
+            ((BTN_ADMIN_GAMES,), ACCESS_GAMES, lambda: self.show_admin_games_menu(update)),
+            ((BTN_ADMIN_POLLS,), ACCESS_GAMES, lambda: self.show_admin_polls_menu(update)),
+            ((BTN_ADD_GAME,), ACCESS_GAMES, lambda: self.start_add_game(update, context, False)),
+            ((BTN_ADD_FESTIVAL,), ACCESS_GAMES, lambda: self.start_add_game(update, context, True)),
+            ((BTN_EDIT_GAME,), ACCESS_GAMES, lambda: self.show_games_for_edit(update)),
+            ((BTN_CREATE_POLL,), ACCESS_GAMES, lambda: self.show_games_for_poll(update)),
+            ((BTN_ALL_TOURNAMENTS,), ACCESS_GAMES, lambda: self.show_tournaments(update)),
+            ((BTN_ADMIN_PLAYERS,), ACCESS_ADMIN, lambda: self.show_admin_players_menu(update)),
+            ((BTN_LINK_PLAYER,), ACCESS_ADMIN, lambda: self.show_players_for_add(update)),
+            ((BTN_MANAGE_RIGHTS,), ACCESS_ADMIN, lambda: self.start_manage_rights(update, context)),
+            ((BTN_LEGIONARY,), ACCESS_ADMIN, lambda: self.legionary(update)),
+        )
+
+    async def _deny_state_access(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        tg_id: int,
+        kind: str,
+        state: str,
+    ) -> None:
+        logger.warning(
+            "Пользователь %s попытался использовать %s-состояние %s",
+            tg_id,
+            kind,
+            state,
+        )
+        await update.message.reply_text("Недостаточно прав.")
+        await self.reset_keyboard_and_state(update, context)
+
     async def text_handler(
         self,
         update: Update,
@@ -174,172 +244,33 @@ class KvrmBot(
 
         text = update.message.text
         tg_id = update.effective_user.id
-
         state = context.user_data.get("state", STATE_NONE)
 
         logger.info(f"{tg_id}: {state} | {text}")
 
         if state in ADMIN_STATES and not self.db.is_admin(tg_id):
-            logger.warning(
-                "Пользователь %s попытался использовать админ-состояние %s",
-                tg_id,
-                state,
-            )
-            await update.message.reply_text("Недостаточно прав.")
-            await self.reset_keyboard_and_state(update, context)
+            await self._deny_state_access(update, context, tg_id, "админ", state)
             return
 
         if state in BASE_STATES and not self.can_manage_games(tg_id):
-            logger.warning(
-                "Пользователь %s попытался использовать состояние игр %s",
-                tg_id,
-                state,
-            )
-            await update.message.reply_text("Недостаточно прав.")
-            await self.reset_keyboard_and_state(update, context)
+            await self._deny_state_access(update, context, tg_id, "игр", state)
             return
 
-        if state == STATE_ADD_GAME_SELECT:
-            await self.handle_add_game_select(update, context)
-            return
-
-        if state == STATE_ADD_GAME_SEARCH_NAME:
-            await self.handle_add_game_search_name(update, context)
-            return
-
-        if state == STATE_ADD_GAME_ID:
-            await self.handle_add_game_id(update, context)
-            return
-
-        if state == STATE_ADD_GAME_CONFIRM:
-            await self.handle_add_game_confirm(update, context)
-            return
-
-        if state == STATE_ADD_GAME_PLACE:
-            await self.handle_add_game_place(update, context)
-            return
-
-        if state == STATE_ADD_GAME_DATE_START:
-            await self.handle_add_game_date_start(update, context)
-            return
-
-        if state == STATE_ADD_GAME_DATE_END:
-            await self.handle_add_game_date_end(update, context)
-            return
-
-        if state == STATE_ADD_GAME_CREATE_POLL:
-            await self.handle_add_game_create_poll(update, context)
-            return
-
-        if state == STATE_UPDATE_PLACE:
-            await self.handle_update_place(update, context)
-            return
-
-        if state == STATE_EDIT_DATE:
-            await self.handle_edit_date(update, context)
-            return
-
-        if state == STATE_EDIT_DELETE_CONFIRM:
-            await self.handle_edit_delete_confirm(update, context)
-            return
-
-        if state == STATE_ADD_PLAYER_RATING_ID:
-            await self.handle_add_player_rating_id(update, context)
-            return
-
-        if state == STATE_ADD_PLAYER_CONFIRM:
-            await self.handle_add_player_confirm(update, context)
-            return
-
-        if state == STATE_RIGHTS_SELECT:
-            await self.handle_rights_select(update, context)
-            return
-
-        if state == STATE_RIGHTS_PICK_BASE_ID:
-            await self.handle_rights_pick_base_id(update, context)
-            return
-
-        if state == STATE_RIGHTS_ACTIONS:
-            await self.handle_rights_actions(update, context)
-            return
-
-        if state == STATE_RIGHTS_CONFIRM:
-            await self.handle_rights_confirm(update, context)
+        state_handler = self._state_handlers().get(state)
+        if state_handler is not None:
+            await state_handler(update, context)
             return
 
         is_admin = self.db.is_admin(tg_id)
         can_manage_games = self.can_manage_games(tg_id)
-
-        if text == BTN_TOURNAMENTS:
-            await self.show_my_tournaments(update)
-            return
-
-        if text == BTN_PLAYING_WITH:
-            await self.show_tournaments_for_players(update)
-            return
-
-        if text == BTN_SETTINGS:
-            await self.show_settings_menu(update)
-            return
-
-        if text in (BTN_ENABLE_NOTIFICATIONS, BTN_DISABLE_NOTIFICATIONS):
-            await self.handle_toggle_notifications(update)
-            return
-
-        if text in (BTN_ENABLE_ANNOUNCE_OFFERS, BTN_DISABLE_ANNOUNCE_OFFERS):
-            await self.handle_toggle_announce_offers(update)
-            return
-
-        if can_manage_games and text == BTN_ADMIN_GAMES:
-            await self.show_admin_games_menu(update)
-            return
-
-        if can_manage_games and text == BTN_ADMIN_POLLS:
-            await self.show_admin_polls_menu(update)
-            return
-
-        if is_admin and text == BTN_ADMIN_PLAYERS:
-            await self.show_admin_players_menu(update)
-            return
-
-        if can_manage_games and text == BTN_ADD_GAME:
-            await self.start_add_game(update, context, False)
-            return
-
-        if can_manage_games and text == BTN_ADD_FESTIVAL:
-            await self.start_add_game(update, context, True)
-            return
-
-        if can_manage_games and text == BTN_EDIT_GAME:
-            await self.show_games_for_edit(update)
-            return
-
-        if can_manage_games and text == BTN_CREATE_POLL:
-            await self.show_games_for_poll(update)
-            return
-
-        if text == BTN_SHOW_POLL:
-            await self.show_games_with_polls(update)
-            return
-
-        if is_admin and text == BTN_LINK_PLAYER:
-            await self.show_players_for_add(update)
-            return
-
-        if is_admin and text == BTN_MANAGE_RIGHTS:
-            await self.start_manage_rights(update, context)
-            return
-
-        if can_manage_games and text == BTN_ALL_TOURNAMENTS:
-            await self.show_tournaments(update)
-            return
-
-        if is_admin and text == BTN_LEGIONARY:
-            await self.legionary(update)
-            return
-
-        if text == BTN_BACK:
-            await self.show_main_menu(update)
+        for buttons, need, action in self._menu_actions(update, context):
+            if text not in buttons:
+                continue
+            if need == ACCESS_GAMES and not can_manage_games:
+                break
+            if need == ACCESS_ADMIN and not is_admin:
+                break
+            await action()
             return
 
         await update.message.reply_text(
@@ -383,6 +314,54 @@ class KvrmBot(
             reply_markup=self.admin_player_keyboard(),
         )
 
+    def _callback_handlers(self):
+        return {
+            PLAYERS_CALLBACK: lambda query, update, context, value: (
+                self.show_players_for_game(query, value)
+            ),
+            PLACE_CALLBACK: lambda query, update, context, value: (
+                self.start_edit_place(query, context, value)
+            ),
+            EDIT_GAME_CALLBACK: lambda query, update, context, value: (
+                self.show_edit_game_menu(query, value)
+            ),
+            EDIT_PLACE_CALLBACK: lambda query, update, context, value: (
+                self.start_edit_place(query, context, value)
+            ),
+            EDIT_DATE_CALLBACK: lambda query, update, context, value: (
+                self.start_edit_date(query, context, value)
+            ),
+            EDIT_DELETE_CALLBACK: lambda query, update, context, value: (
+                self.start_edit_delete(query, context, value)
+            ),
+            POLL_CALLBACK: lambda query, update, context, value: (
+                self.create_or_forward_poll(query, update, context, value)
+            ),
+            ADD_PLAYER_CALLBACK: lambda query, update, context, value: (
+                self.ask_link_player_id(query, context, value)
+            ),
+            LINK_SUGGEST_CALLBACK: lambda query, update, context, value: (
+                self.confirm_link_player_by_id(query.message, context, value)
+            ),
+            SHOW_POLL_CALLBACK: lambda query, update, context, value: (
+                self.show_poll(query, context.bot, value)
+            ),
+            LEGIONARY_CALLBACK: lambda query, update, context, value: (
+                self.create_msg_for_legionary_chat(query, context, value)
+            ),
+            RIGHTS_CALLBACK: lambda query, update, context, value: (
+                self.handle_rights_player_callback(query, context, value)
+            ),
+        }
+
+    async def _deny_callback(self, query, tg_id: int, reason: str) -> None:
+        logger.warning(
+            "Пользователь %s вызвал callback без прав: %s",
+            tg_id,
+            reason,
+        )
+        await query.answer("Недостаточно прав.", show_alert=True)
+
     async def callback_handler(
         self,
         update: Update,
@@ -396,112 +375,47 @@ class KvrmBot(
             await query.answer()
             return
 
-        callback_cmd, text = parts[0], parts[1]
+        callback_cmd, payload = parts[0], parts[1]
         tg_id = update.effective_user.id
 
         if callback_cmd in ADMIN_CALLBACKS and not self.db.is_admin(tg_id):
-            logger.warning(
-                "Пользователь %s вызвал админ-callback %s",
-                tg_id,
-                callback_cmd,
-            )
-            await query.answer("Недостаточно прав.", show_alert=True)
+            await self._deny_callback(query, tg_id, callback_cmd)
             return
+
         if callback_cmd in BASE_CALLBACKS and not self.can_manage_games(tg_id):
-            logger.warning(
-                "Пользователь %s вызвал callback игр %s",
-                tg_id,
-                callback_cmd,
-            )
-            await query.answer("Недостаточно прав.", show_alert=True)
-            return
-        elif callback_cmd in (SHOW_POLL_CALLBACK, PLAYERS_CALLBACK):
-            try:
-                game_id = int(text)
-            except ValueError:
-                await query.answer()
-                return
-            if not self.db.can_view_game_poll(tg_id, game_id):
-                logger.warning(
-                    "Пользователь %s запросил чужие данные игры %s (%s)",
-                    tg_id,
-                    game_id,
-                    callback_cmd,
-                )
-                await query.answer("Недостаточно прав.", show_alert=True)
-                return
-        elif callback_cmd == ANNOUNCE_OFFER_CALLBACK:
-            if not self.db.can_receive_announce_offers(tg_id):
-                logger.warning(
-                    "Пользователь %s вызвал callback анонса без флага",
-                    tg_id,
-                )
-                await query.answer("Недостаточно прав.", show_alert=True)
-                return
-
-        await query.answer()
-
-        if callback_cmd == PLAYERS_CALLBACK:
-            await self.show_players_for_game(query, int(text))
-            return
-
-        if callback_cmd == PLACE_CALLBACK:
-            await self.start_edit_place(query, context, int(text))
-            return
-
-        if callback_cmd == EDIT_GAME_CALLBACK:
-            await self.show_edit_game_menu(query, int(text))
-            return
-
-        if callback_cmd == EDIT_PLACE_CALLBACK:
-            await self.start_edit_place(query, context, int(text))
-            return
-
-        if callback_cmd == EDIT_DATE_CALLBACK:
-            await self.start_edit_date(query, context, int(text))
-            return
-
-        if callback_cmd == EDIT_DELETE_CALLBACK:
-            await self.start_edit_delete(query, context, int(text))
-            return
-
-        if callback_cmd == POLL_CALLBACK:
-            await self.create_or_forward_poll(
-                query, update, context, int(text)
-            )
-            return
-
-        if callback_cmd == ADD_PLAYER_CALLBACK:
-            await self.ask_link_player_id(query, context, int(text))
-            return
-
-        if callback_cmd == LINK_SUGGEST_CALLBACK:
-            await self.confirm_link_player_by_id(
-                query.message, context, int(text)
-            )
-            return
-
-        if callback_cmd == SHOW_POLL_CALLBACK:
-            await self.show_poll(query, context.bot, int(text))
-            return
-
-        if callback_cmd == LEGIONARY_CALLBACK:
-            await self.create_msg_for_legionary_chat(
-                query, context, int(text)
-            )
-            return
-
-        if callback_cmd == RIGHTS_CALLBACK:
-            try:
-                rights_base_id = int(text)
-            except ValueError:
-                return
-            await self.handle_rights_player_callback(query, context, rights_base_id)
+            await self._deny_callback(query, tg_id, callback_cmd)
             return
 
         if callback_cmd == ANNOUNCE_OFFER_CALLBACK:
+            if not self.db.can_receive_announce_offers(tg_id):
+                await self._deny_callback(query, tg_id, callback_cmd)
+                return
+            await query.answer()
             await self.announces.handle_callback(query, context, parts)
             return
+
+        try:
+            value = int(payload)
+        except ValueError:
+            await query.answer()
+            return
+
+        if callback_cmd in (SHOW_POLL_CALLBACK, PLAYERS_CALLBACK):
+            if not self.db.can_view_game_poll(tg_id, value):
+                await self._deny_callback(
+                    query,
+                    tg_id,
+                    f"{callback_cmd}:{value}",
+                )
+                return
+
+        handler = self._callback_handlers().get(callback_cmd)
+        if handler is None:
+            await query.answer()
+            return
+
+        await query.answer()
+        await handler(query, update, context, value)
 
     async def _post_init(self, application: Application) -> None:
         self.announces.schedule(application)
