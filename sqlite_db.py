@@ -432,6 +432,23 @@ class SqliteDB:
 
         return self.fetch_all(query, (tg_id,))
 
+    def get_future_schedule(self):
+        """Все будущие игры команды, без ограничения по готовности игрока."""
+        query = """
+            SELECT
+                g.id,
+                g.base_id,
+                g.name,
+                g.place,
+                g."date_start",
+                g."date_end",
+                g.is_festival
+            FROM games g
+            WHERE COALESCE(g."date_end", g."date_start") >= CURRENT_DATE
+            ORDER BY g."date_start"
+        """
+        return self.fetch_all(query, ())
+
     def get_last_ready_game(self, tg_id: int):
         """
         Последняя уже прошедшая игра, где игрок отметил готовность.

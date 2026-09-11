@@ -37,9 +37,20 @@ logger = logging.getLogger(__name__)
 
 
 class PlayerHandlers:
+    def _format_tournament_lines(self, games) -> str:
+        lines = []
+        for game in games:
+            _game_id, base_id, name, place, date_start, date_end, is_fest = game
+            when_text = get_when_text(date_start, date_end, is_fest)
+            lines.append(
+                f"{base_id}. {name} — "
+                f"{place or 'Место не указано'} — "
+                f"{when_text}"
+            )
+        return "\n".join(lines)
+
     async def show_my_tournaments(self, update: Update):
         tg_id = update.effective_user.id
-
         games = self.db.get_my_tournaments(tg_id)
 
         if not games:
@@ -48,24 +59,30 @@ class PlayerHandlers:
             )
             return
 
-        lines = []
-
         try:
-            for game in games:
-                game_id, base_id, name, place, date_start, date_end, is_fest = game
-
-                when_text = get_when_text(date_start, date_end, is_fest)
-                lines.append(
-                    f"{base_id}. {name} — "
-                    f"{place or 'Место не указано'} — "
-                    f"{when_text}"
-                )
-
             await update.message.reply_text(
-                "\n".join(lines)
+                self._format_tournament_lines(games)
             )
         except Exception:
             await update.message.reply_text("Произошла ошибка при попытке показать мои турниры.")
+
+    async def show_schedule(self, update: Update):
+        games = self.db.get_future_schedule()
+
+        if not games:
+            await update.message.reply_text(
+                "Турниров нет."
+            )
+            return
+
+        try:
+            await update.message.reply_text(
+                self._format_tournament_lines(games)
+            )
+        except Exception:
+            await update.message.reply_text(
+                "Произошла ошибка при попытке показать расписание."
+            )
 
     # =================================================================
     # С КЕМ ИГРАЮ
@@ -107,25 +124,33 @@ class PlayerHandlers:
         query,
         game_id: int
     ):
-
+        game = self.db.get_game(game_id)
+        title = (game.get("name") if game else None) or str(game_id)
         players = self.db.get_ready_players_for_game(game_id)
+        lines = [title]
 
         if not players:
-            text = "Игроков нет."
+            lines.append("Игроков нет.")
         else:
-            lines = []
-
             for base_id, surname, name, patronymic, flag, tg_username, tg_id, notif in players:
                 if base_id:
-                    new_line = ' '.join([str(base_id), ':', flag, surname or '',
-                        name or '', patronymic or '']).strip()
+                    new_line = " ".join(
+                        part for part in (
+                            flag,
+                            str(base_id),
+                            surname,
+                            name,
+                            patronymic,
+                        ) if part
+                    )
                 else:
-                    new_line = ' '.join([flag, ':', tg_username or '']).strip()
+                    new_line = " ".join(
+                        part for part in (flag, tg_username or str(tg_id or ""))
+                        if part
+                    )
                 lines.append(new_line)
 
-            text = "\n".join(lines)
-
-        await query.message.reply_text(text)
+        await query.message.reply_text("\n".join(lines))
 
     async def show_players_for_add(
         self,
