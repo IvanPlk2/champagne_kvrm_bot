@@ -49,7 +49,6 @@ from const import (
     EDIT_PLACE_CALLBACK,
     LEGIONARY_CALLBACK,
     LINK_SUGGEST_CALLBACK,
-    PLACE_CALLBACK,
     PLAYERS_CALLBACK,
     POLL_CALLBACK,
     RIGHTS_CALLBACK,
@@ -318,9 +317,6 @@ class KvrmBot(
         return {
             PLAYERS_CALLBACK: lambda query, update, context, value: (
                 self.show_players_for_game(query, value)
-            ),
-            PLACE_CALLBACK: lambda query, update, context, value: (
-                self.start_edit_place(query, context, value)
             ),
             EDIT_GAME_CALLBACK: lambda query, update, context, value: (
                 self.show_edit_game_menu(query, value)
