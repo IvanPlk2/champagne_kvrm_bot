@@ -51,10 +51,9 @@ class GameReminderHandlers:
 
         now = datetime.now(MSK_TZ)
         start = self._aware_msk(date_start)
-        reminders = (
-            ("day", start - timedelta(days=1)),
-            ("hour", start - timedelta(hours=2)),
-        )
+        reminders = [("day", start - timedelta(days=1))]
+        if not game.get("is_festival"):
+            reminders.append(("hour", start - timedelta(hours=2)))
         for kind, when in reminders:
             if when <= now:
                 continue
