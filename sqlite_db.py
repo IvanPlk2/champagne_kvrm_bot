@@ -1328,6 +1328,26 @@ class SqliteDB:
             self.connection.rollback()
             return []
 
+    def get_tg_username_by_tg_id(self, tg_id: int) -> Optional[str]:
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    SELECT tg_username
+                    FROM players
+                    WHERE tg_id = ?
+                """, (tg_id,))
+                result = cursor.fetchone()
+
+            self.connection.commit()
+            if result is None:
+                return None
+            return result[0]
+
+        except Error:
+            self.connection.rollback()
+            return None
+
     def get_linked_base_ids(self) -> set:
         try:
             self.check_connection()

@@ -216,13 +216,25 @@ class PlayerHandlers:
             ])
         return InlineKeyboardMarkup(keyboard) if keyboard else None
 
+    def _ask_rating_id_text(self, tg_id: Optional[int]) -> str:
+        if tg_id is None:
+            return "Введите id рейтинга:"
+        tg_username = self.db.get_tg_username_by_tg_id(tg_id)
+        if not tg_username:
+            return "Введите id рейтинга:"
+        username = (
+            tg_username if str(tg_username).startswith("@")
+            else f"@{tg_username}"
+        )
+        return f"Введите id рейтинга для {username}:"
+
     async def ask_link_player_id(self, query, context, player_id: int):
         context.user_data["player_id"] = player_id
         context.user_data["state"] = STATE_ADD_PLAYER_RATING_ID
         context.user_data["link_suggestions"] = {}
 
         await query.message.reply_text(
-            "Введите id рейтинга:",
+            self._ask_rating_id_text(player_id),
             reply_markup=self.back_keyboard(),
         )
 
@@ -342,7 +354,9 @@ class PlayerHandlers:
             )
             keyboard = self._link_suggestion_keyboard(suggestions)
             await update.message.reply_text(
-                "Введите id рейтинга:",
+                self._ask_rating_id_text(
+                    context.user_data.get("player_id")
+                ),
                 reply_markup=self.back_keyboard(),
             )
             if keyboard:
