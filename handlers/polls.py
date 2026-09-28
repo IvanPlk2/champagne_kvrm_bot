@@ -174,6 +174,28 @@ class PollHandlers:
         self.schedule_poll_unpin(job_queue, game)
         return True
 
+    async def forward_game_poll(self, bot, game: dict, chat_id: int) -> bool:
+        message_id = game.get("poll")
+        if message_id is None:
+            return False
+        for from_chat_id in (TEAM_CHAT_ID, ANOTHER_CHAT_ID):
+            try:
+                await bot.forward_message(
+                    chat_id=chat_id,
+                    from_chat_id=from_chat_id,
+                    message_id=message_id,
+                )
+                return True
+            except Exception:
+                logger.debug(
+                    "Не удалось переслать опрос игры %s в чат %s из %s",
+                    game.get("base_id"),
+                    chat_id,
+                    from_chat_id,
+                    exc_info=True,
+                )
+        return False
+
     def _aware_msk(self, value: datetime) -> datetime:
         if value.tzinfo is None:
             return value.replace(tzinfo=MSK_TZ)

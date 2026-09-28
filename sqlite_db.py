@@ -886,6 +886,24 @@ class SqliteDB:
             self.connection.rollback()
             return False
 
+    def reset_ready_to_play_for_game(self, game_base_id: int) -> bool:
+        """Сбрасывает готовность, чтобы игроки переголосовали в новом опросе."""
+        try:
+            self.check_connection()
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("""
+                    UPDATE ready_to_play
+                    SET ready = 0
+                    WHERE game = ?
+                """, (game_base_id,))
+
+            self.connection.commit()
+            return True
+
+        except Error:
+            self.connection.rollback()
+            return False
+
     def fetch_all(self, query: str, params=None):
         try:
             self.check_connection()

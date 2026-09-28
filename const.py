@@ -56,6 +56,7 @@ STATE_ADD_GAME_CREATE_POLL = "add_game_create_poll"
 
 STATE_UPDATE_PLACE = "update_place"
 STATE_EDIT_DATE = "edit_date"
+STATE_EDIT_DATE_CONFIRM = "edit_date_confirm"
 STATE_EDIT_DELETE_CONFIRM = "edit_delete_confirm"
 
 STATE_ADD_PLAYER_RATING_ID = "add_player_rating_id"
@@ -108,6 +109,7 @@ BASE_STATES = {
     STATE_ADD_GAME_CREATE_POLL,
     STATE_UPDATE_PLACE,
     STATE_EDIT_DATE,
+    STATE_EDIT_DATE_CONFIRM,
     STATE_EDIT_DELETE_CONFIRM,
 }
 

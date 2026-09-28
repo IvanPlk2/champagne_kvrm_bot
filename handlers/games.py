@@ -25,6 +25,7 @@ from const import (
     STATE_ADD_GAME_SELECT,
     STATE_ADD_GAME_CREATE_POLL,
     STATE_EDIT_DATE,
+    STATE_EDIT_DATE_CONFIRM,
     STATE_EDIT_DELETE_CONFIRM,
     STATE_NONE,
     STATE_UPDATE_PLACE,
@@ -1179,7 +1180,100 @@ class GameHandlers:
             await update.message.reply_text(self._rating_window_error(context))
             return
 
-        await self._save_edited_dates(update, context, game_id, game_when, None)
+        game = self.db.get_game(game_id)
+        old_when = to_msk_naive(game.get("date_start")) if game else None
+        if old_when is not None and old_when.replace(second=0, microsecond=0) == game_when:
+            await update.message.reply_text("Дата не изменилась.")
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        context.user_data["edit_date_start"] = game_when
+        context.user_data["state"] = STATE_EDIT_DATE_CONFIRM
+        await update.message.reply_text(
+            (
+                f"Изменить дату на {game_when.strftime('%d.%m.%y %H:%M')}?\n"
+                "При смене Даты опрос будет создан заново!"
+            ),
+            reply_markup=self.yes_no_keyboard(),
+        )
+
+    async def handle_edit_date_confirm(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ):
+        text = update.message.text
+
+        if text == BTN_NO or text == BTN_BACK:
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        if text != BTN_YES:
+            await update.message.reply_text(
+                with_start_hint("Выберите Да или Нет."),
+                reply_markup=self.yes_no_keyboard(),
+            )
+            return
+
+        game_id = context.user_data.get("game_id")
+        date_start = context.user_data.get("edit_date_start")
+        if game_id is None or date_start is None:
+            await self.reset_keyboard_and_state(update, context)
+            return
+
+        await self._save_edited_dates(update, context, game_id, date_start, None)
+
+    async def _recreate_game_poll(self, context, old_game: dict) -> bool:
+        game_id = old_game["base_id"]
+        self.unschedule_poll_unpin(context.job_queue, game_id)
+        await self._delete_game_poll_message(context.bot, old_game)
+        self.db.clear_game_poll(game_id)
+        self.db.reset_ready_to_play_for_game(game_id)
+        fresh = self.db.get_game(game_id)
+        return await self.send_game_poll(context.bot, fresh, context.job_queue)
+
+    async def _notify_revote_after_date_change(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        game: dict,
+        players,
+    ):
+        when_text = get_when_text(
+            game["date_start"],
+            game["date_end"],
+            game["is_festival"],
+        )
+        text = (
+            f"Дата проведения игры «{game['name']}» изменена.\n"
+            f"Новая дата: {when_text}\n"
+            "Пожалуйста, проголосуйте заново."
+        )
+        failures = []
+        for player in players:
+            label = self._ready_player_label(player)
+            tg_username = player[5]
+            tg_id = player[6]
+            if not tg_id:
+                failures.append((label, "ошибка отправки"))
+                continue
+            try:
+                await context.bot.send_message(
+                    chat_id=tg_id,
+                    text=text,
+                )
+            except Exception:
+                logger.exception(
+                    "Не удалось отправить уведомление игроку %s.",
+                    tg_username,
+                )
+                failures.append((label, "ошибка отправки"))
+                continue
+            if game.get("poll") is None:
+                continue
+            forwarded = await self.forward_game_poll(context.bot, game, tg_id)
+            if not forwarded:
+                failures.append((label, "не удалось отправить опрос"))
+        return failures
 
     async def _save_edited_dates(
         self,
@@ -1189,6 +1283,14 @@ class GameHandlers:
         date_start,
         date_end,
     ):
+        old_game = self.db.get_game(game_id)
+        yes_voters = self.db.get_ready_players_for_game(game_id)
+        had_poll = bool(
+            old_game
+            and old_game.get("poll") is not None
+            and old_game.get("poll_id") is not None
+        )
+
         success = self.db.add_dates_for_game(
             game_id,
             date_start,
@@ -1216,22 +1318,33 @@ class GameHandlers:
         )
 
         failures = []
+        result_text = "Дата обновлена."
         if game and when_text:
-            failures = await self.notify_ready_players(
-                context,
-                game_id,
-                (
-                    f"Дата проведения игры «{game['name']}» изменена.\n"
-                    f"Новая дата: {when_text}"
-                ),
-                skip_tg_id=self._changer_tg_id(update),
-                collect_failures=True,
-            )
+            if had_poll:
+                poll_ok = await self._recreate_game_poll(context, old_game)
+            else:
+                self.db.reset_ready_to_play_for_game(game_id)
+                poll_ok = await self.send_game_poll(
+                    context.bot, game, context.job_queue
+                )
+            game = self.db.get_game(game_id) or game
+            if poll_ok:
+                result_text = "Дата обновлена, опрос создан заново."
+            else:
+                result_text = (
+                    "Дата обновлена, но не удалось создать новый опрос."
+                )
+            if yes_voters:
+                failures = await self._notify_revote_after_date_change(
+                    context,
+                    game,
+                    yes_voters,
+                )
             self.schedule_game_reminders(context.job_queue, game)
             self.schedule_poll_unpin(context.job_queue, game)
 
         await update.message.reply_text(
-            self._notify_result_text("Дата обновлена.", failures)
+            self._notify_result_text(result_text, failures)
         )
         await self.reset_keyboard_and_state(update, context)
 
